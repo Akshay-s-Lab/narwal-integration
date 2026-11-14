@@ -11,7 +11,13 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.narwal.const import DOMAIN
-from custom_components.narwal.narwal_client import NarwalAuthError, NarwalCloudError
+from custom_components.narwal.narwal_client import (
+    NarwalAuthError,
+    NarwalBrokerAuthError,
+    NarwalClient,
+    NarwalCloudError,
+    NarwalConnectionError,
+)
 from custom_components.narwal.narwal_client.cloud import NarwalCloud, NarwalDevice
 
 LOGIN = {"email": "user@example.com", "password": "secret", "region": "il"}
@@ -59,9 +65,16 @@ async def _start(hass: HomeAssistant, devices=None, error=None):
         patch.object(NarwalCloud, "login", _fake_login),
         patch.object(NarwalCloud, "get_devices", get_devices),
     ):
-        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-        assert result["type"] is FlowResultType.FORM and result["step_id"] == "user"
+        result = await _open_step(hass, "cloud")
         return await hass.config_entries.flow.async_configure(result["flow_id"], LOGIN)
+
+
+async def _open_step(hass: HomeAssistant, step: str):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert result["type"] is FlowResultType.MENU and result["step_id"] == "user"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": step})
+    assert result["type"] is FlowResultType.FORM and result["step_id"] == step
+    return result
 
 
 def test_device_list_parsing() -> None:
@@ -129,7 +142,7 @@ async def test_wrong_password(hass: HomeAssistant) -> None:
         raise NarwalAuthError("Account or password is incorrect")
 
     with patch.object(NarwalCloud, "login", bad_login):
-        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+        result = await _open_step(hass, "cloud")
         result = await hass.config_entries.flow.async_configure(result["flow_id"], LOGIN)
     assert result["type"] is FlowResultType.FORM and result["errors"] == {"base": "invalid_auth"}
 
@@ -140,3 +153,82 @@ def test_wrong_password_reply_is_an_auth_error() -> None:
     reply = {"code": -1, "msg": "Account or password is incorrect, please check and try again"}
     with patch.object(NarwalCloud, "_request", return_value=reply), pytest.raises(NarwalAuthError):
         cloud.login("user@example.com", "wrong")
+
+
+LOCAL = {
+    "broker_host": " mqtt.lan ",
+    "broker_port": 1883,
+    "broker_tls": False,
+    "mqtt_username": "homeassistant",
+    "mqtt_password": "broker-secret",
+    "product_key": "hEA7OEshlx",
+    "device_name": "D" * 32,
+}
+
+
+def _connect_result(error: Exception | None = None):
+    async def connect(self: NarwalClient) -> None:
+        connect.clients.append(self)
+        if error:
+            raise error
+
+    connect.clients = []
+    return connect
+
+
+async def _local(hass: HomeAssistant, values: dict, error: Exception | None = None):
+    connect = _connect_result(error)
+    with (
+        patch.object(NarwalClient, "connect", connect),
+        patch.object(NarwalClient, "disconnect", return_value=None),
+    ):
+        result = await _open_step(hass, "local")
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], values)
+    return result, connect.clients
+
+
+async def test_local_broker_creates_entry_without_an_account(hass: HomeAssistant) -> None:
+    result, clients = await _local(hass, LOCAL)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {
+        "connection": "local",
+        "broker_host": "mqtt.lan",
+        "broker_port": 1883,
+        "broker_tls": False,
+        "mqtt_username": "homeassistant",
+        "mqtt_password": "broker-secret",
+        "product_key": "hEA7OEshlx",
+        "device_name": "d" * 32,
+        "user_uuid": "0" * 32,
+    }
+    assert result["result"].unique_id == "hEA7OEshlx_" + "d" * 32
+    client = clients[0]
+    assert (client.broker, client.port, client.use_tls) == ("mqtt.lan", 1883, False)
+    assert (client._mqtt_username, client._mqtt_password) == ("homeassistant", "broker-secret")
+
+
+async def test_local_broker_rejects_bad_device_name(hass: HomeAssistant) -> None:
+    result, clients = await _local(hass, {**LOCAL, "device_name": "not-hex"})
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"device_name": "invalid_device_name"}
+    assert not clients
+
+
+@pytest.mark.parametrize("error", [NarwalConnectionError("timed out"), ConnectionRefusedError()])
+async def test_local_broker_unreachable(hass: HomeAssistant, error: Exception) -> None:
+    result, _ = await _local(hass, LOCAL, error)
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect_broker"}
+
+
+async def test_local_broker_wrong_credentials(hass: HomeAssistant) -> None:
+    result, _ = await _local(hass, LOCAL, NarwalBrokerAuthError("Not authorized"))
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_broker_auth"}
+
+
+async def test_local_broker_robot_already_added(hass: HomeAssistant) -> None:
+    MockConfigEntry(domain=DOMAIN, unique_id="hEA7OEshlx_" + "d" * 32).add_to_hass(hass)
+    result, clients = await _local(hass, LOCAL)
+    assert result["type"] is FlowResultType.ABORT and result["reason"] == "already_configured"
+    assert not clients

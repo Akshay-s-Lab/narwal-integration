@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from homeassistant.components.vacuum import (
@@ -18,7 +19,7 @@ from . import NarwalConfigEntry
 from .const import CLEAN_MODE_MAP, FAN_SPEED_LIST, FAN_SPEED_MAP, FAN_SPEED_REVERSE, MOP_HUMIDITY_MAP
 from .coordinator import NarwalCoordinator
 from .entity import NarwalEntity
-from .narwal_client import CleanMode, FanLevel, MopHumidity
+from .narwal_client import CleanMode, FanLevel, MopHumidity, NarwalClient
 from .narwal_client.models import (
     ACTIVITY_CLEANING,
     ACTIVITY_DOCKED,
@@ -109,6 +110,13 @@ class NarwalVacuum(NarwalEntity, StateVacuumEntity):
             attrs["current_room"] = room.display_name if room else state.current_room_id
         if state.mop_humidity:
             attrs["mop_humidity"] = state.mop_humidity.name.lower()
+        pose = state.robot_pose or (state.map.robot if state.map else None)
+        if pose:
+            attrs["robot_position"] = [round(pose.x), round(pose.y)]
+        attrs["no_go_zones"] = [
+            {"id": z.zone_id, "kind": z.kind, "points": [[round(x, 1), round(y, 1)] for x, y in z.polygon]}
+            for z in state.no_go_zones
+        ]
         return attrs
 
     # ---- basic control -------------------------------------------------
@@ -212,32 +220,144 @@ class NarwalVacuum(NarwalEntity, StateVacuumEntity):
         clean_rooms  params: rooms: [ids], mode: "Vacuum & Mop", fan_speed:
                      "Strong", mop_humidity: "wet", passes: 2 (all optional
                      except rooms)
+        clean_zones  params: zones: [[x1, y1, x2, y2], ...] in map grid units
+                     (see the robot_position attribute), plus the same
+                     optional settings as clean_rooms
+        add_no_go_zone     params: zone: [x1, y1, x2, y2] or points: [[x, y], ...],
+                           kind: all | vacuum | mop
+        add_barrier        params: start: [x, y], end: [x, y]
+        remove_no_go_zone  params: id (see the no_go_zones attribute)
+        rename_room        params: room, name ("" restores the room type's name)
+        merge_rooms        params: rooms: [a, b]
+        split_room         params: room, start: [x, y], end: [x, y]
+        start_mapping      params: replace_current_map: true
+        save_map
+        manual_control     params: enabled: true | false
+        drive              params: linear, angular (-100..100 percent)
         wash_mop | dry_mop | wash_and_dry_mop | empty_dustbin
         """
+        if command in _MAP_COMMANDS:
+            await self._run(_MAP_COMMANDS[command](self.coordinator.client, params if isinstance(params, dict) else {}))
+            self.coordinator.async_map_edited()
+            return
+        if command in _CONTROL_COMMANDS:
+            await self._run(_CONTROL_COMMANDS[command](self.coordinator.client, params if isinstance(params, dict) else {}))
+            await self.coordinator.async_request_refresh()
+            return
         p = params if isinstance(params, dict) else {}
         if command == "clean_rooms":
             rooms = p.get("rooms") or []
             if not rooms:
                 raise ServiceValidationError("clean_rooms needs params.rooms (a list of room ids)")
-            mode_name = p.get("mode")
-            if mode_name is not None and mode_name not in CLEAN_MODE_MAP:
-                raise ServiceValidationError(f"Unknown mode {mode_name!r}; use one of {list(CLEAN_MODE_MAP)}")
-            fan_name = p.get("fan_speed")
-            if fan_name is not None and fan_name not in FAN_SPEED_MAP:
-                raise ServiceValidationError(f"Unknown fan_speed {fan_name!r}; use one of {FAN_SPEED_LIST}")
-            mop_name = p.get("mop_humidity")
-            if mop_name is not None and mop_name not in MOP_HUMIDITY_MAP:
-                raise ServiceValidationError(f"Unknown mop_humidity {mop_name!r}; use dry, normal or wet")
-            await self._clean_rooms(
-                [int(r) for r in rooms],
-                mode=CLEAN_MODE_MAP.get(mode_name) if mode_name else None,
-                fan=FAN_SPEED_MAP.get(fan_name) if fan_name else None,
-                mop=MOP_HUMIDITY_MAP.get(mop_name) if mop_name else None,
-                passes=int(p["passes"]) if p.get("passes") else None,
-            )
+            await self._clean_rooms([int(r) for r in rooms], **_clean_settings(p))
+        elif command == "clean_zones":
+            zones = _parse_zones(p.get("zones"))
+            settings = _clean_settings(p)
+            await self._run(self.coordinator.client.start_zone_clean(
+                zones,
+                mode=settings["mode"] or self.coordinator.selected_clean_mode,
+                fan_level=settings["fan"],
+                mop_humidity=settings["mop"],
+                passes=settings["passes"] or self.coordinator.clean_passes,
+            ))
+            await self.coordinator.async_request_refresh()
         elif command in _SIMPLE_COMMANDS:
             await self._run(getattr(self.coordinator.client, _SIMPLE_COMMANDS[command])())
         else:
             raise ServiceValidationError(
-                f"Unknown command {command!r}; supported: clean_rooms, {', '.join(_SIMPLE_COMMANDS)}"
+                f"Unknown command {command!r}; supported: clean_rooms, clean_zones, {', '.join(_SIMPLE_COMMANDS)}"
             )
+
+
+def _clean_settings(p: dict[str, Any]) -> dict[str, Any]:
+    mode_name = p.get("mode")
+    if mode_name is not None and mode_name not in CLEAN_MODE_MAP:
+        raise ServiceValidationError(f"Unknown mode {mode_name!r}; use one of {list(CLEAN_MODE_MAP)}")
+    fan_name = p.get("fan_speed")
+    if fan_name is not None and fan_name not in FAN_SPEED_MAP:
+        raise ServiceValidationError(f"Unknown fan_speed {fan_name!r}; use one of {FAN_SPEED_LIST}")
+    mop_name = p.get("mop_humidity")
+    if mop_name is not None and mop_name not in MOP_HUMIDITY_MAP:
+        raise ServiceValidationError(f"Unknown mop_humidity {mop_name!r}; use dry, normal or wet")
+    return {
+        "mode": CLEAN_MODE_MAP.get(mode_name) if mode_name else None,
+        "fan": FAN_SPEED_MAP.get(fan_name) if fan_name else None,
+        "mop": MOP_HUMIDITY_MAP.get(mop_name) if mop_name else None,
+        "passes": int(p["passes"]) if p.get("passes") else None,
+    }
+
+
+def _point(raw: Any, name: str) -> tuple[float, float]:
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise ServiceValidationError(f"{name} must be [x, y]")
+    try:
+        return float(raw[0]), float(raw[1])
+    except (TypeError, ValueError):
+        raise ServiceValidationError(f"{name} must contain numbers") from None
+
+
+def _room(p: dict[str, Any], key: str = "room") -> int:
+    try:
+        return int(p[key])
+    except (KeyError, TypeError, ValueError):
+        raise ServiceValidationError(f"params.{key} must be a room id") from None
+
+
+def _no_go_polygon(p: dict[str, Any]) -> list[tuple[float, float]]:
+    if "points" in p:
+        points = p["points"]
+        if not isinstance(points, list) or len(points) < 3:
+            raise ServiceValidationError("params.points needs at least three [x, y] points")
+        return [_point(pt, "Each point") for pt in points]
+    x1, y1, x2, y2 = _parse_zones([p.get("zone")])[0]
+    return [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+
+
+def _start_mapping(client: NarwalClient, p: dict[str, Any]) -> Any:
+    if p.get("replace_current_map") is not True:
+        raise ServiceValidationError(
+            "start_mapping replaces the current map, its rooms and no-go zones; "
+            "pass params.replace_current_map: true to confirm"
+        )
+    return client.start_mapping(rebuild_current=True)
+
+
+def _merge(client: NarwalClient, p: dict[str, Any]) -> Any:
+    rooms = p.get("rooms")
+    if not isinstance(rooms, list) or len(rooms) != 2:
+        raise ServiceValidationError("merge_rooms needs params.rooms: [a, b]")
+    return client.merge_rooms(int(rooms[0]), int(rooms[1]))
+
+
+_MAP_COMMANDS: dict[str, Callable[[NarwalClient, dict[str, Any]], Awaitable[Any]]] = {
+    "add_no_go_zone": lambda c, p: c.add_no_go_zone(_no_go_polygon(p), str(p.get("kind", "all"))),
+    "add_barrier": lambda c, p: c.add_barrier(_point(p.get("start"), "start"), _point(p.get("end"), "end")),
+    "remove_no_go_zone": lambda c, p: c.remove_no_go_zone(_room(p, "id")),
+    "rename_room": lambda c, p: c.rename_room(_room(p), str(p.get("name", ""))),
+    "merge_rooms": _merge,
+    "split_room": lambda c, p: c.split_room(_room(p), _point(p.get("start"), "start"), _point(p.get("end"), "end")),
+    "save_map": lambda c, p: c.save_map_update(),
+}
+
+_CONTROL_COMMANDS: dict[str, Callable[[NarwalClient, dict[str, Any]], Awaitable[Any]]] = {
+    "start_mapping": _start_mapping,
+    "manual_control": lambda c, p: c.set_manual_control(bool(p.get("enabled", True))),
+    "drive": lambda c, p: c.drive(int(p.get("linear", 0)), int(p.get("angular", 0))),
+}
+
+
+def _parse_zones(raw: Any) -> list[tuple[int, int, int, int]]:
+    if not isinstance(raw, list) or not raw:
+        raise ServiceValidationError("clean_zones needs params.zones: a list of [x1, y1, x2, y2] rectangles")
+    zones = []
+    for zone in raw:
+        if not isinstance(zone, (list, tuple)) or len(zone) != 4:
+            raise ServiceValidationError(f"Zone {zone!r} must be [x1, y1, x2, y2]")
+        try:
+            x1, y1, x2, y2 = (int(round(float(v))) for v in zone)
+        except (TypeError, ValueError):
+            raise ServiceValidationError(f"Zone {zone!r} must contain numbers") from None
+        if x1 == x2 or y1 == y2:
+            raise ServiceValidationError(f"Zone {zone!r} has no area")
+        zones.append((x1, y1, x2, y2))
+    return zones

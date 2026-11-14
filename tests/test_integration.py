@@ -104,6 +104,49 @@ async def test_clean_rooms_command(hass: HomeAssistant, setup, robot) -> None:
         )
 
 
+async def test_clean_zones_command(hass: HomeAssistant, setup, robot) -> None:
+    await hass.services.async_call(
+        "vacuum", "send_command",
+        {"entity_id": VACUUM, "command": "clean_zones",
+         "params": {"zones": [[13, -2, -5, 16], [0, 0, 18.4, 17.6]], "mode": "Vacuum Only", "passes": 2}},
+        blocking=True,
+    )
+    task = decode("StartClean_Request", robot.requests("clean/start_clean")[-1])["task"]
+    assert task["taskType"] == "TASK_TYPE_GENERAL_SWEEP" and task["mapId"] == 1
+    assert task["option"] == {"enableSmartMode": True}
+    first, second = task["items"]
+    assert first["zone"]["zoneType"] == "ZONE_TYPE_ZONE" and first["zone"]["zoneId"] == 1
+    assert first["zone"]["selectionBounds"] == [
+        {"x": -5, "y": 16}, {"x": 13, "y": 16}, {"x": 13, "y": -2}, {"x": -5, "y": -2},
+    ]
+    path = first["zone"]["cleaningBounds"]
+    assert path[0] == {"x": -4, "y": -1} and path[16] == {"x": 12, "y": -1} and path[17] == {"x": 12, "y": 1}
+    assert all(-5 < p["x"] < 13 and -2 < p["y"] < 16 for p in path)
+    assert first["param"] == {
+        "mode": "CLEAN_MODE_SWEEP", "fanLevel": "FAN_LEVEL_NORMAL", "sweepTime": 2,
+        "overlapLevel": "OVERLAP_LEVEL_NORMAL", "enableSmartMode": True,
+    }
+    assert first["order"] == 1 and second["order"] == 2
+    assert second["zone"]["selectionBounds"][1] == {"x": 18, "y": 18}
+
+    with pytest.raises(HomeAssistantError, match="too small"):
+        await hass.services.async_call(
+            "vacuum", "send_command",
+            {"entity_id": VACUUM, "command": "clean_zones", "params": {"zones": [[0, 0, 10, 8]]}}, blocking=True,
+        )
+
+    for bad in ([], [[1, 2, 3]], [[1, 1, 1, 5]], [["a", 1, 2, 3]]):
+        with pytest.raises(ServiceValidationError):
+            await hass.services.async_call(
+                "vacuum", "send_command",
+                {"entity_id": VACUUM, "command": "clean_zones", "params": {"zones": bad}}, blocking=True,
+            )
+
+
+async def test_robot_position_attribute(hass: HomeAssistant, setup) -> None:
+    assert hass.states.get(VACUUM).attributes["robot_position"] == [-8, 0]
+
+
 async def test_clean_area_segments(hass: HomeAssistant, setup, robot) -> None:
     entity = hass.data["vacuum"].get_entity(VACUUM)
     segments = await entity.async_get_segments()
@@ -111,6 +154,77 @@ async def test_clean_area_segments(hass: HomeAssistant, setup, robot) -> None:
     await entity.async_clean_segments(["2"])
     req = decode("StartClean_Request", robot.requests("clean/start_clean")[-1])
     assert [i["zone"]["zoneId"] for i in req["task"]["items"]] == [2]
+
+
+async def test_consumable_life_tracks_cleaning_time(hass: HomeAssistant, setup, robot, config_entry) -> None:
+    client = setup.client
+    filter_life = _eid(hass, "sensor", "dust_filter_life")
+    roller_life = _eid(hass, "sensor", "roller_brush_life")
+    assert hass.states.get(filter_life).state == "100"
+
+    composite = {"task": "TASK_TYPE_COMPOSITE_CLEAN", "compositeCleanStatus": "COMPOSITE_CLEAN_STATUS_ROOM_SWEEP"}
+    push(hass, client, "status/robot_base_status", "RobotBaseStatus", {"robotTaskStatus": composite})
+    push(hass, client, "status/working_status", "WorkingStatus", {"timeConsuming": 15 * 3600})
+    push(hass, client, "status/working_status", "WorkingStatus", {"cleaningZoneId": 1})
+    push(hass, client, "status/robot_base_status", "RobotBaseStatus",
+         {"robotTaskStatus": {**composite, "compositeCleanStatus": "COMPOSITE_CLEAN_STATUS_PARKING"}})
+    await hass.async_block_till_done()
+    assert hass.states.get(VACUUM).state == VacuumActivity.RETURNING
+    push(hass, client, "status/robot_base_status", "RobotBaseStatus",
+         {"robotTaskStatus": {"task": "TASK_TYPE_IDLE", "idleStatus": "IDLE_STATUS_IN_STATION"},
+          "stationContactType": "STATION_CONTACT_TYPE_CONTACTED"})
+    await hass.async_block_till_done()
+
+    assert hass.states.get(filter_life).state == "90"
+    assert hass.states.get(roller_life).state == "95"
+    attrs = hass.states.get(filter_life).attributes
+    assert attrs["used_hours"] == 15.0 and attrs["lifetime_hours"] == 150 and attrs["tracking_since"]
+
+    assert await hass.config_entries.async_reload(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(filter_life).state == "90"
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": _eid(hass, "button", "reset_dust_filter")}, blocking=True,
+    )
+    await hass.async_block_till_done()
+    reset = decode("ResetConsumableInfo_Request", robot.requests("consumable/reset_consumable_info")[-1])
+    assert reset == {"consumableInfo": {"replaceItems": ["CONSUMABLE_REPLACE_ITEM_DUST_FILTER"]}}
+    assert hass.states.get(filter_life).state == "100"
+    assert hass.states.get(roller_life).state == "95"
+
+
+async def test_trail_follows_the_clean(hass: HomeAssistant, setup) -> None:
+    client = setup.client
+    composite = {"task": "TASK_TYPE_COMPOSITE_CLEAN", "compositeCleanStatus": "COMPOSITE_CLEAN_STATUS_ROOM_SWEEP"}
+
+    def pose(x: float, y: float) -> None:
+        push(hass, client, "map/display_map", "DisplayMap",
+             {"robot": {"location": {"x": x, "y": y}, "theta": 0.0}, "currentCleanZoneId": 1})
+
+    pose(-8.0, 0.0)
+    assert client.state.trail == []
+
+    push(hass, client, "status/robot_base_status", "RobotBaseStatus", {"robotTaskStatus": composite})
+    for x, y in [(-8.0, 0.0), (-8.1, 0.1), (-6.0, 0.0), (-6.0, 2.0)]:
+        pose(x, y)
+    assert client.state.trail == [(-8.0, 0.0), (-6.0, 0.0), (-6.0, 2.0)]
+
+    push(hass, client, "status/robot_base_status", "RobotBaseStatus",
+         {"robotTaskStatus": {"task": "TASK_TYPE_IDLE", "idleStatus": "IDLE_STATUS_IN_STATION"},
+          "stationContactType": "STATION_CONTACT_TYPE_CONTACTED"})
+    pose(-8.0, 0.0)
+    assert len(client.state.trail) == 3
+
+    push(hass, client, "status/robot_base_status", "RobotBaseStatus", {"robotTaskStatus": composite})
+    pose(-4.0, 1.0)
+    assert client.state.trail == [(-4.0, 1.0)]
+    await hass.async_block_till_done()
+
+    from homeassistant.components.camera import async_get_image
+
+    image = await async_get_image(hass, _eid(hass, "camera", "map"))
+    assert image.content.startswith(b"\x89PNG")
 
 
 async def test_pushes_drive_activity(hass: HomeAssistant, setup) -> None:

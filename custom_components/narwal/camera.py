@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from homeassistant.components.camera import Camera
 from homeassistant.core import HomeAssistant, callback
@@ -12,12 +13,13 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import NarwalConfigEntry
 from .coordinator import NarwalCoordinator
 from .entity import NarwalEntity
-from .narwal_client.map_renderer import render_snapshot
+from .narwal_client.map_renderer import project_to_image, render_snapshot
 
 _LOGGER = logging.getLogger(__name__)
 
 # If the map hasn't loaded yet, ask for it at most this often.
 MAP_RETRY_SECONDS = 300
+RENDER_SCALE = 3
 
 
 async def async_setup_entry(
@@ -53,6 +55,18 @@ class NarwalMapCamera(NarwalEntity, Camera):
         return self._image is not None or super().available
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        snapshot = self.state_data.map
+        if snapshot is None:
+            return None
+        points = []
+        for dx, dy in ((0, 0), (20, 0), (0, 20)):
+            x, y = snapshot.left + dx, snapshot.bottom + dy
+            px, py = project_to_image(snapshot, x, y, RENDER_SCALE)
+            points.append({"vacuum": {"x": x, "y": y}, "map": {"x": round(px, 2), "y": round(py, 2)}})
+        return {"calibration_points": points}
+
+    @property
     def frame_interval(self) -> float:
         return 2.0 if self.state_data.is_cleaning else 30.0
 
@@ -72,6 +86,7 @@ class NarwalMapCamera(NarwalEntity, Camera):
             round(pose.y, 1) if pose else None,
             state.current_room_id if state.is_cleaning else None,
             tuple((r.room_id, r.display_name) for r in state.rooms),
+            len(state.trail),
         )
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
@@ -94,6 +109,8 @@ class NarwalMapCamera(NarwalEntity, Camera):
                 {r.room_id: r.display_name for r in state.rooms},
                 state.robot_pose,
                 state.current_room_id if state.is_cleaning else None,
+                RENDER_SCALE,
+                list(state.trail),
             )
         except Exception:  # noqa: BLE001 - never break the dashboard
             _LOGGER.debug("Map render failed", exc_info=True)

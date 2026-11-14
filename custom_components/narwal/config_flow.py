@@ -1,11 +1,4 @@
-"""Config flow for Narwal integration.
-
-1. Log in with the Narwal app's email, password and region.
-2. The robots bound to the account are listed from the Narwal cloud; with
-   one robot the entry is created right away, with several the user picks
-   one. Manual entry of product key + device name is only a fallback when
-   the list can't be fetched.
-"""
+"""Config flow for Narwal integration: Narwal cloud account or a local MQTT broker."""
 
 from __future__ import annotations
 
@@ -18,17 +11,35 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
 from .const import (
     CONF_ACCESS_TOKEN,
+    CONF_BROKER_HOST,
+    CONF_BROKER_PORT,
+    CONF_BROKER_TLS,
+    CONF_CONNECTION,
     CONF_DEVICE_NAME,
     CONF_EMAIL,
+    CONF_MQTT_PASSWORD,
+    CONF_MQTT_USERNAME,
     CONF_PASSWORD,
     CONF_PRODUCT_KEY,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
     CONF_USER_UUID,
+    CONNECTION_CLOUD,
+    CONNECTION_LOCAL,
+    DEFAULT_LOCAL_PORT,
     DOMAIN,
+    LOCAL_USER_UUID,
     REGION_OPTIONS,
 )
-from .narwal_client import NarwalAuthError, NarwalCloud, NarwalCloudError, NarwalDevice
+from .narwal_client import (
+    NarwalAuthError,
+    NarwalBrokerAuthError,
+    NarwalClient,
+    NarwalCloud,
+    NarwalCloudError,
+    NarwalConnectionError,
+    NarwalDevice,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +58,26 @@ def _unique_id(product_key: str, device_name: str) -> str:
     return f"{product_key}_{device_name}"
 
 
+def _valid_device_name(device_name: str) -> bool:
+    return len(device_name) == 32 and all(c in "0123456789abcdef" for c in device_name)
+
+
+def _local_schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_BROKER_HOST, default=defaults.get(CONF_BROKER_HOST, "")): str,
+            vol.Required(CONF_BROKER_PORT, default=defaults.get(CONF_BROKER_PORT, DEFAULT_LOCAL_PORT)): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=65535)
+            ),
+            vol.Required(CONF_BROKER_TLS, default=defaults.get(CONF_BROKER_TLS, False)): bool,
+            vol.Optional(CONF_MQTT_USERNAME, default=defaults.get(CONF_MQTT_USERNAME, "")): str,
+            vol.Optional(CONF_MQTT_PASSWORD, default=defaults.get(CONF_MQTT_PASSWORD, "")): str,
+            vol.Required(CONF_PRODUCT_KEY, default=defaults.get(CONF_PRODUCT_KEY, DEFAULT_PRODUCT_KEY)): str,
+            vol.Required(CONF_DEVICE_NAME, default=defaults.get(CONF_DEVICE_NAME, "")): str,
+        }
+    )
+
+
 class NarwalConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Narwal."""
 
@@ -60,7 +91,57 @@ class NarwalConfigFlow(ConfigFlow, domain=DOMAIN):
         self._devices: list[NarwalDevice] = []
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Step 1: email, password and region."""
+        """Choose between the Narwal cloud and a local MQTT broker."""
+        return self.async_show_menu(step_id="user", menu_options=[CONNECTION_CLOUD, CONNECTION_LOCAL])
+
+    async def async_step_local(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Connect through an MQTT broker on the LAN that the robot uses instead of Narwal's."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data = {
+                **user_input,
+                CONF_BROKER_HOST: user_input[CONF_BROKER_HOST].strip(),
+                CONF_PRODUCT_KEY: user_input[CONF_PRODUCT_KEY].strip(),
+                CONF_DEVICE_NAME: user_input[CONF_DEVICE_NAME].strip().lower(),
+            }
+            if not _valid_device_name(data[CONF_DEVICE_NAME]):
+                errors[CONF_DEVICE_NAME] = "invalid_device_name"
+            else:
+                await self.async_set_unique_id(_unique_id(data[CONF_PRODUCT_KEY], data[CONF_DEVICE_NAME]))
+                self._abort_if_unique_id_configured()
+                client = NarwalClient(
+                    product_key=data[CONF_PRODUCT_KEY],
+                    device_name=data[CONF_DEVICE_NAME],
+                    user_uuid=LOCAL_USER_UUID,
+                    mqtt_username=data.get(CONF_MQTT_USERNAME) or None,
+                    mqtt_password=data.get(CONF_MQTT_PASSWORD) or None,
+                    broker=data[CONF_BROKER_HOST],
+                    port=data[CONF_BROKER_PORT],
+                    use_tls=data[CONF_BROKER_TLS],
+                )
+                try:
+                    await client.connect()
+                except NarwalBrokerAuthError:
+                    errors["base"] = "invalid_broker_auth"
+                except (NarwalConnectionError, OSError):
+                    errors["base"] = "cannot_connect_broker"
+                except Exception:  # noqa: BLE001
+                    _LOGGER.exception("Unexpected error connecting to the MQTT broker")
+                    errors["base"] = "unknown"
+                else:
+                    await client.disconnect()
+                    return self.async_create_entry(
+                        title=f"Narwal {data[CONF_DEVICE_NAME][:8]} (local)",
+                        data={**data, CONF_CONNECTION: CONNECTION_LOCAL, CONF_USER_UUID: LOCAL_USER_UUID},
+                    )
+            user_input = data
+
+        return self.async_show_form(
+            step_id="local", data_schema=_local_schema(user_input or {}), errors=errors
+        )
+
+    async def async_step_cloud(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Log in with the Narwal app's email, password and region."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -81,7 +162,7 @@ class NarwalConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._cloud = cloud
                 return await self._async_after_login()
 
-        return self.async_show_form(step_id="user", data_schema=STEP_LOGIN_SCHEMA, errors=errors)
+        return self.async_show_form(step_id="cloud", data_schema=STEP_LOGIN_SCHEMA, errors=errors)
 
     async def _async_after_login(self) -> ConfigFlowResult:
         assert self._cloud is not None
@@ -120,7 +201,7 @@ class NarwalConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             device_name = user_input[CONF_DEVICE_NAME].strip().lower()
-            if len(device_name) != 32 or any(c not in "0123456789abcdef" for c in device_name):
+            if not _valid_device_name(device_name):
                 errors[CONF_DEVICE_NAME] = "invalid_device_name"
             else:
                 return await self._async_create(NarwalDevice(
@@ -143,6 +224,7 @@ class NarwalConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_create_entry(
             title=device.name or device.model or f"Narwal {device.device_name[:8]}",
             data={
+                CONF_CONNECTION: CONNECTION_CLOUD,
                 CONF_EMAIL: self._email,
                 CONF_PASSWORD: self._password,
                 CONF_REGION: self._region,

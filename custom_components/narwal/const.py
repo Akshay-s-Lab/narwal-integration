@@ -32,6 +32,17 @@ CONF_MQTT_USERNAME = "mqtt_username"
 CONF_MQTT_PASSWORD = "mqtt_password"
 CONF_MQTT_CLIENT_ID = "mqtt_client_id"
 
+# Local broker: the robot's MQTT is redirected to a broker on the LAN.
+CONF_CONNECTION = "connection"
+CONNECTION_CLOUD = "cloud"
+CONNECTION_LOCAL = "local"
+CONF_BROKER_HOST = "broker_host"
+CONF_BROKER_PORT = "broker_port"
+CONF_BROKER_TLS = "broker_tls"
+DEFAULT_LOCAL_PORT = 1883
+# The robot accepts any account UUID in the request frame.
+LOCAL_USER_UUID = "0" * 32
+
 # Cached room list so start_clean works while the vacuum sleeps.
 CONF_ROOMS_CACHE = "rooms_cache"
 

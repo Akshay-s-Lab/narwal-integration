@@ -72,6 +72,24 @@ class FakeRobot:
             "carpetCleanOption": "CARPET_CLEAN_OPTION_IGNORE",
         }
         self.reject: set[str] = set()
+        self.edit_version = 7
+        self.map: dict[str, Any] = {
+            "mapId": 1, "mapVersion": 3, "resolution": 60, "width": 20, "height": 10,
+            "border": {"left": -10, "bottom": -5, "right": 9, "top": 4},
+            "station": {"location": {"x": -8.0, "y": 0.0}, "theta": 0.0},
+            "robotPose": {"location": {"x": -8.0, "y": 0.0}, "theta": 0.0},
+            "roomInfos": [
+                {"roomId": 1, "type": 3},
+                {"roomId": 2, "type": 4, "customName": "Galley"},
+                {"roomId": 3, "type": 6},
+            ],
+            "forbiddens": [{
+                "type": "FORBIDDEN_TYPE_SWEEP_MOP", "id": 1, "roomId": 3,
+                "mode": "FORBIDDEN_MODE_ROOM",
+            }],
+            "mapData": _grid(20, 10),
+            "rotateAngle": 90,
+        }
 
     def requests(self, command: str) -> list[bytes]:
         return [req for cmd, req in self.calls if cmd == command]
@@ -101,24 +119,39 @@ class FakeRobot:
         if command == "common/upgrade/get_firmware_version":
             return frame(encode("GetFirmwareVersion_Response", {"firmwareVersionText": "v01.09.01.00"}))
         if command == "map/get_map":
-            return frame(encode("GetMap_Response", {**ok, "map": {
-                "mapId": 1, "resolution": 60, "width": 20, "height": 10,
-                "border": {"left": -10, "bottom": -5, "right": 9, "top": 4},
-                "station": {"location": {"x": -8.0, "y": 0.0}, "theta": 0.0},
-                "robotPose": {"location": {"x": -8.0, "y": 0.0}, "theta": 0.0},
-                "roomInfos": [
-                    {"roomId": 1, "type": 3},
-                    {"roomId": 2, "type": 4, "customName": "Galley"},
-                    {"roomId": 3, "type": 6},
-                ],
-                "forbiddens": [{
-                    "type": "FORBIDDEN_TYPE_SWEEP_MOP", "id": 1, "roomId": 3,
-                    "mode": "FORBIDDEN_MODE_ROOM",
-                }],
-                "mapData": _grid(20, 10),
-                "rotateAngle": 90,
-            }}))
+            return frame(encode("GetMap_Response", {**ok, "map": self.map}))
+        if command == "map/get_editable_map":
+            return frame(encode("GetEditableMap_Response", {**ok, "map": self.map, "editVersion": self.edit_version}))
+        if command == "map/operation":
+            return frame(encode("MapOperation_Response", self._apply_map_operation(request)))
         return frame(encode("SetFanLevel_Response", ok))  # generic ServiceResult
+
+    def _apply_map_operation(self, request: bytes) -> dict[str, Any]:
+        from custom_components.narwal.narwal_client.proto import decode
+
+        failed = {"result": "SERVICE_RESULT_PERFORM_GENERAL_FAILED"}
+        req = decode("MapOperation_Request", request)
+        if req.get("editVersion", 0) != self.edit_version or req.get("mapVersion", 0) != self.map["mapVersion"]:
+            return failed
+        rooms, forbiddens = self.map["roomInfos"], self.map.setdefault("forbiddens", [])
+        for op in req.get("operations", []):
+            if "forbiddenAreaOperation" in op:
+                area = op["forbiddenAreaOperation"]
+                forbidden = area.get("forbidden", {})
+                forbiddens[:] = [f for f in forbiddens if f.get("id") != forbidden.get("id") or f.get("roomId")]
+                if area.get("operation") == "OPERATION_SET":
+                    forbiddens.append(forbidden)
+            elif "roomInfoOperation" in op:
+                info = op["roomInfoOperation"]["roomInfo"]
+                rooms[:] = [info if r["roomId"] == info["roomId"] else r for r in rooms]
+            elif "roomMergeOperation" in op:
+                rooms[:] = [r for r in rooms if r["roomId"] != op["roomMergeOperation"]["roomId2"]]
+            elif "roomSegOperation" in op:
+                rooms.append({"roomId": max(r["roomId"] for r in rooms) + 1})
+            else:
+                return failed
+        self.edit_version += 1
+        return {"result": "SERVICE_RESULT_PERFORM_SUCCESS", "map": self.map, "editVersion": self.edit_version}
 
 
 @pytest.fixture

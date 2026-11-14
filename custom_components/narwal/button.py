@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -14,6 +15,7 @@ from . import NarwalConfigEntry
 from .coordinator import NarwalCoordinator
 from .entity import NarwalEntity
 from .narwal_client import NarwalClient
+from .narwal_client.const import CONSUMABLE_LIFETIME_HOURS
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -43,7 +45,10 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(NarwalButton(coordinator, d) for d in BUTTONS)
+    async_add_entities([
+        *(NarwalButton(coordinator, d) for d in BUTTONS),
+        *(NarwalConsumableResetButton(coordinator, item) for item in CONSUMABLE_LIFETIME_HOURS),
+    ])
 
 
 class NarwalButton(NarwalEntity, ButtonEntity):
@@ -58,3 +63,19 @@ class NarwalButton(NarwalEntity, ButtonEntity):
     async def async_press(self) -> None:
         await self._run(self.entity_description.press_fn(self.coordinator.client))
         await self.coordinator.async_request_refresh()
+
+
+class NarwalConsumableResetButton(NarwalEntity, ButtonEntity):
+    """Mark a part as replaced, resetting its usage counter."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:restore"
+
+    def __init__(self, coordinator: NarwalCoordinator, item: str) -> None:
+        key = f"reset_{item.lower()}"
+        super().__init__(coordinator, key)
+        self._attr_translation_key = key
+        self._item = item
+
+    async def async_press(self) -> None:
+        await self._run(self.coordinator.async_reset_consumable(self._item))

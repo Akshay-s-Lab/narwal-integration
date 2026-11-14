@@ -4,7 +4,11 @@ ROOTS=["GetDeviceBaseStatus_Response","RobotBaseStatus","WorkingStatus","GetConf
  "GetFeatureList_Response","StartClean_Request","StartClean_Response","SetConfig_Request","SetConfig_Response",
  "SetFanLevel_Request","SetFanLevel_Response","SetMopHumidity_Request","SetMopHumidity_Response","ResetConsumableInfo_Request",
  "PauseTask_Request","ResumeTask_Request","ForceEndTask_Request","GetMap_Request","GetMap_Response","DisplayMap",
- "GetCleanSchedules_Response","GetFirmwareVersion_Response","OTAUpgradeStatus","ActiveRobotPublish_Request"]
+ "GetCleanSchedules_Response","GetFirmwareVersion_Response","OTAUpgradeStatus","ActiveRobotPublish_Request",
+ "GetEditableMap_Request","GetEditableMap_Response","MapOperation_Request","MapOperation_Response",
+ "BuildMap_Request","BuildMap_Response","SaveMapUpdate_Request","SaveMapUpdate_Response",
+ "CheckMapUpdate_Request","CheckMapUpdate_Response","SetManualControlMode_Request","SetManualControlMode_Response",
+ "TelecontrolVelocity"]
 STOP={"VisionData","RobotTrajectory","RobotTrajectoryInfo","RobotTrajectoryWithInfo","RobotTrajectoryArc","IncrementalMapData",
  "EntireMapData","VideoCruisePointData","PetHeatArea","ThresholdData","Window","RoomContour","ReducedMap","Carpet","UpdateMapRegion",
  "MapCenterAlign","ZoneInfo","Door","SmartCleanParam","MapConfiguration","WakeUpWord","AIInfo","DebugOption",

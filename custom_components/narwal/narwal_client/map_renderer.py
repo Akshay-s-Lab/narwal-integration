@@ -82,6 +82,7 @@ def _darken(color: tuple[int, int, int], amount: int = 80) -> tuple[int, int, in
 COLOR_ROBOT = (255, 255, 255)
 COLOR_ROBOT_OUTLINE = (20, 120, 255)
 COLOR_STATION = (255, 196, 0)
+COLOR_TRAIL = (255, 255, 255)
 
 
 def render_snapshot(
@@ -90,8 +91,12 @@ def render_snapshot(
     robot_pose=None,
     active_room_id: int | None = None,
     scale: int = 3,
+    trail: list[tuple[float, float]] | None = None,
 ) -> bytes:
     """Render a MapSnapshot with dock and robot markers, rotated like the app."""
+    from .models import Pose
+
+    trail_pixels = [snapshot.to_pixel(Pose(x, y)) for x, y in trail or ()]
     markers = []
     if snapshot.station:
         markers.append(("station", snapshot.to_pixel(snapshot.station), snapshot.station.theta))
@@ -101,7 +106,34 @@ def render_snapshot(
     return render_map(
         snapshot.grid, snapshot.width, snapshot.height, room_names,
         scale=scale, markers=markers, rotate=snapshot.rotate_angle,
-        highlight_room=active_room_id,
+        highlight_room=active_room_id, trail=trail_pixels,
+    )
+
+
+def _rotate_and_pad(
+    x: float, y: float, w_img: int, h_img: int, rotate: int, margin: int
+) -> tuple[float, float]:
+    if rotate == 90:
+        x, y = y, w_img - x
+    elif rotate == 180:
+        x, y = w_img - x, h_img - y
+    elif rotate == 270:
+        x, y = h_img - y, x
+    return x + margin, y + margin
+
+
+def project_to_image(snapshot, x: float, y: float, scale: int = 3) -> tuple[float, float]:
+    """Map coordinates -> pixel in the image render_snapshot draws at the same scale."""
+    from .models import Pose
+
+    gx, gy = snapshot.to_pixel(Pose(x, y))
+    return _rotate_and_pad(
+        (gx + 0.5) * scale,
+        (snapshot.height - 1 - gy + 0.5) * scale,
+        snapshot.width * scale,
+        snapshot.height * scale,
+        (-snapshot.rotate_angle) % 360,
+        8 * scale,
     )
 
 
@@ -133,6 +165,7 @@ def render_map(
     markers: list | None = None,
     rotate: int = 0,
     highlight_room: int | None = None,
+    trail: list[tuple[float, float]] | None = None,
 ) -> bytes:
     """Render compressed map grid data as a PNG image.
 
@@ -245,13 +278,11 @@ def render_map(
     img = padded
 
     def _rot(x: float, y: float) -> tuple[float, float]:
-        if rotate == 90:
-            x, y = y, w_img - x
-        elif rotate == 180:
-            x, y = w_img - x, h_img - y
-        elif rotate == 270:
-            x, y = h_img - y, x
-        return x + margin, y + margin
+        return _rotate_and_pad(x, y, w_img, h_img, rotate, margin)
+
+    if trail and len(trail) > 1:
+        points = [_rot((gx + 0.5) * scale, (height - 1 - gy + 0.5) * scale) for gx, gy in trail]
+        ImageDraw.Draw(img).line(points, fill=COLOR_TRAIL, width=max(1, scale // 2), joint="curve")
 
     if markers:
         import math

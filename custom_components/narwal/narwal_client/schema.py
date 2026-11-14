@@ -35,6 +35,44 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         3: ('left', 'int32', None, False),
         4: ('right', 'int32', None, False),
     },
+    'BoundingBox': {
+        1: ('center', 'message', 'Point__MapBaseType', False),
+        2: ('width', 'float', None, False),
+        3: ('height', 'float', None, False),
+    },
+    'BoundingBox3D': {
+        1: ('center', 'message', 'Vector3D', False),
+        2: ('size', 'message', 'Vector3D', False),
+    },
+    'BuildMap_Request': {
+        1: ('buildType', 'enum', 'MapBuildType', False),
+        2: ('mapExistStairs', 'bool', None, False),
+        3: ('mapStairType', 'enum', 'MapStairType', False),
+        4: ('isRebuildCurrentMap', 'bool', None, False),
+    },
+    'BuildMap_Response': {
+        1: ('result', 'enum', 'ServiceResult', False),
+        2: ('taskId', 'int32', None, False),
+        3: ('unifiedErrorCode', 'uint32', None, False),
+    },
+    'CarpetOperation': {
+        1: ('carpetId', 'uint32', None, False),
+        2: ('carpetCleanOption', 'enum', 'CarpetCleanOption', False),
+        3: ('operation', 'enum', 'CarpetOperation_Operation', False),
+        4: ('carpetPolygon', 'message', 'Grid', True),
+        5: ('carpetModifyPolygon', 'message', 'Grid', True),
+        6: ('isFullRoomCarpet', 'bool', None, False),
+        7: ('enableDeepClean', 'bool', None, False),
+        8: ('sideBrushCleanEnabled', 'bool', None, False),
+        12: ('roomId', 'uint32', None, False),
+    },
+    'CheckMapUpdate_Request': {
+    },
+    'CheckMapUpdate_Response': {
+        1: ('result', 'bool', None, False),
+        2: ('map', 'message', 'StaticMapPayload', False),
+        3: ('unifiedErrorCode', 'uint32', None, False),
+    },
     'CleanCornerSetting': {
         1: ('cleanCornerFreq', 'enum', 'CleanCornerFreq', False),
         2: ('interval', 'uint32', None, False),
@@ -137,6 +175,9 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         2: ('level', 'enum', 'DryDustBagLevel', False),
         3: ('dryDustBagTimeBeforeDropMopEnd', 'uint32', None, False),
     },
+    'EditConfig': {
+        1: ('maxRoomNums', 'uint32', None, False),
+    },
     'ErrorCode': {
         1: ('identityCode', 'uint32', None, False),
         2: ('level', 'uint32', None, False),
@@ -170,6 +211,9 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         1: ('ai', 'message', 'FirmwareVersionEntityMSG', False),
         2: ('cpu', 'message', 'FirmwareVersionEntityMSG', False),
     },
+    'FloorPlanOperation': {
+        1: ('roomContours', 'bytes', None, True),
+    },
     'ForbiddenArea': {
         1: ('polygon', 'message', 'Point__MapBaseType', True),
         2: ('type', 'enum', 'ForbiddenArea_ForbiddenType', False),
@@ -177,9 +221,23 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         4: ('roomId', 'uint32', None, False),
         5: ('mode', 'enum', 'ForbiddenArea_ForbiddenMode', False),
     },
+    'ForbiddenAreaOperation': {
+        1: ('operation', 'enum', 'ForbiddenAreaOperation_Operation', False),
+        2: ('forbidden', 'message', 'ForbiddenArea', False),
+    },
     'ForceEndTask_Request': {
         1: ('tasks', 'enum', 'ParallelTaskType', True),
         2: ('exceptTasks', 'enum', 'ParallelTaskType', True),
+    },
+    'Furniture': {
+        1: ('id', 'int32', None, False),
+        2: ('furnitureType', 'uint32', None, False),
+        3: ('box', 'message', 'BoundingBox', False),
+        4: ('angle', 'float', None, False),
+        5: ('isMirrored', 'bool', None, False),
+        6: ('box3d', 'message', 'BoundingBox3D', False),
+        7: ('color', 'uint32', None, False),
+        8: ('texture', 'enum', 'Furniture_FurnitureTexture', False),
     },
     'GetCleanSchedules_Response': {
         1: ('errorCode', 'message', 'ScheduleErrorCode', False),
@@ -257,6 +315,19 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         1: ('result', 'enum', 'GetDeviceBaseStatus_Response_ResultType', False),
         2: ('robotBaseStatus', 'message', 'RobotBaseStatus', False),
         3: ('unifiedErrorCode', 'uint32', None, False),
+    },
+    'GetEditableMap_Request': {
+        1: ('mapId', 'uint32', None, False),
+        2: ('enableShowManualAddCarpet', 'bool', None, False),
+        3: ('enableFloorPlanData', 'bool', None, False),
+        4: ('mapRequestFormat', 'enum', 'MapRequestFormat', False),
+    },
+    'GetEditableMap_Response': {
+        1: ('result', 'enum', 'ServiceResult', False),
+        2: ('map', 'message', 'StaticMapPayload', False),
+        3: ('editVersion', 'uint32', None, False),
+        4: ('editConfig', 'message', 'EditConfig', False),
+        5: ('unifiedErrorCode', 'uint32', None, False),
     },
     'GetFeatureList_Response': {
         1: ('supportMultiMap', 'bool', None, False),
@@ -413,9 +484,48 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         1: ('grids', 'uint32', None, True),
         2: ('debugGrids', 'uint32', None, True),
     },
+    'MapOperationPayload': {
+        1: ('roomSegOperation', 'message', 'RoomSegOperation', False),
+        2: ('roomMergeOperation', 'message', 'RoomMergeOperation', False),
+        3: ('roomInfoOperation', 'message', 'RoomInfoOperation', False),
+        4: ('forbiddenAreaOperation', 'message', 'ForbiddenAreaOperation', False),
+        5: ('mapRotateOperation', 'message', 'MapRotateOperation', False),
+        6: ('carpetOperation', 'message', 'CarpetOperation', False),
+        7: ('setMapNameOperation', 'message', 'SetMapNameOperation', False),
+        8: ('setFurnitureOperation', 'message', 'SetFurnitureOperation', False),
+        9: ('floorPlanOperation', 'message', 'FloorPlanOperation', False),
+        10: ('petHeatAreaOperation', 'message', 'PetHeatAreaOperation', False),
+        11: ('thresholdOperation', 'message', 'ThresholdOperation', False),
+        12: ('slopeOperation', 'message', 'SlopeOperation', False),
+        13: ('virtualWallOperation', 'message', 'VirtualWallOperation', False),
+        14: ('noCarpetAreaOperation', 'message', 'NoCarpetAreaOperation', False),
+    },
+    'MapOperation_Request': {
+        1: ('mapId', 'uint32', None, False),
+        2: ('mapVersion', 'uint32', None, False),
+        3: ('editVersion', 'uint32', None, False),
+        4: ('operations', 'message', 'MapOperationPayload', True),
+        5: ('enableShowManualAddCarpet', 'bool', None, False),
+        6: ('enableFloorPlanData', 'bool', None, False),
+        7: ('mapRequestFormat', 'enum', 'MapRequestFormat', False),
+    },
+    'MapOperation_Response': {
+        1: ('result', 'enum', 'ServiceResult', False),
+        2: ('map', 'message', 'StaticMapPayload', False),
+        3: ('editVersion', 'uint32', None, False),
+        4: ('errorCode', 'enum', 'ErrorCode', False),
+        5: ('unifiedErrorCode', 'uint32', None, False),
+    },
+    'MapRotateOperation': {
+        1: ('rotateAngle', 'int32', None, False),
+    },
     'NoCarpetArea': {
         1: ('id', 'uint32', None, False),
         2: ('polygon', 'message', 'Grid', True),
+    },
+    'NoCarpetAreaOperation': {
+        1: ('operation', 'enum', 'NoCarpetAreaOperation_Operation', False),
+        2: ('noCarpetArea', 'message', 'NoCarpetArea', False),
     },
     'OTAUpgradeStatus': {
         1: ('type', 'int32', None, False),
@@ -429,6 +539,10 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
     },
     'PauseTask_Request': {
         1: ('tasks', 'enum', 'ParallelTaskType', True),
+    },
+    'PetHeatAreaOperation': {
+        1: ('operation', 'enum', 'PetHeatAreaOperation_Operation', False),
+        2: ('petHeatArea', 'bytes', None, False),
     },
     'Point__MapBaseType': {
         1: ('x', 'float', None, False),
@@ -559,6 +673,26 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         10: ('isCustomizeReduceNoise', 'bool', None, False),
         11: ('needTipsSilentRoom', 'bool', None, False),
     },
+    'RoomInfoOperation': {
+        1: ('roomInfo', 'message', 'RoomInfo', False),
+    },
+    'RoomMergeOperation': {
+        1: ('roomId1', 'uint32', None, False),
+        2: ('roomId2', 'uint32', None, False),
+        3: ('newRoomId', 'uint32', None, False),
+    },
+    'RoomSegOperation': {
+        1: ('startSegPoint', 'message', 'Point__map_rebuild_data', False),
+        2: ('endSegPoint', 'message', 'Point__map_rebuild_data', False),
+        3: ('leftRoomId', 'uint32', None, False),
+        4: ('rightRoomId', 'uint32', None, False),
+    },
+    'SaveMapUpdate_Request': {
+    },
+    'SaveMapUpdate_Response': {
+        1: ('result', 'bool', None, False),
+        2: ('unifiedErrorCode', 'uint32', None, False),
+    },
     'ScheduleErrorCode': {
         1: ('code', 'enum', 'ScheduleErrorCode_ErrorCode', False),
         2: ('message', 'string', None, False),
@@ -631,6 +765,20 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         1: ('result', 'enum', 'ServiceResult', False),
         2: ('unifiedErrorCode', 'uint32', None, False),
     },
+    'SetFurnitureOperation': {
+        1: ('opt', 'enum', 'SetFurnitureOperation_Operation', False),
+        2: ('furniture', 'message', 'Furniture', False),
+    },
+    'SetManualControlMode_Request': {
+        1: ('manualControlMode', 'enum', 'SetManualControlMode_Request_ManualControlMode', False),
+    },
+    'SetManualControlMode_Response': {
+        1: ('result', 'enum', 'ServiceResult', False),
+        2: ('unifiedErrorCode', 'uint32', None, False),
+    },
+    'SetMapNameOperation': {
+        1: ('customName', 'string', None, False),
+    },
     'SetMopHumidity_Request': {
         1: ('mopHumidity', 'enum', 'MopHumidity', False),
         2: ('gearValue', 'int32', None, False),
@@ -644,6 +792,10 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         1: ('id', 'uint32', None, False),
         2: ('points', 'message', 'Point__MapBaseType', True),
         3: ('height', 'uint32', None, False),
+    },
+    'SlopeOperation': {
+        1: ('operation', 'enum', 'SlopeOperation_Operation', False),
+        2: ('slopeData', 'message', 'SlopeData', False),
     },
     'StartClean_Request': {
         1: ('task', 'message', 'CleanTask', False),
@@ -721,10 +873,30 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         10: ('isCleanWithMapping', 'bool', None, False),
         11: ('isNavoClean', 'bool', None, False),
     },
+    'TelecontrolVelocity': {
+        1: ('linearVelocity', 'int32', None, False),
+        2: ('angularVelocity', 'int32', None, False),
+        3: ('type', 'enum', 'TelecontrolVelocity_VelocityType', False),
+        4: ('actualLinearVelocity', 'float', None, False),
+        5: ('actualAngularVelocity', 'float', None, False),
+    },
+    'ThresholdOperation': {
+        1: ('operation', 'enum', 'ThresholdOperation_Operation', False),
+        2: ('thresholdData', 'bytes', None, False),
+    },
+    'Vector3D': {
+        1: ('x', 'float', None, False),
+        2: ('y', 'float', None, False),
+        3: ('z', 'float', None, False),
+    },
     'VirtualWallData': {
         1: ('id', 'uint32', None, False),
         2: ('startPoint', 'message', 'Point__MapBaseType', False),
         3: ('endPoint', 'message', 'Point__MapBaseType', False),
+    },
+    'VirtualWallOperation': {
+        1: ('operation', 'enum', 'VirtualWallOperation_Operation', False),
+        2: ('virtualWallData', 'message', 'VirtualWallData', False),
     },
     'WorkingStatus': {
         1: ('workingProgress', 'float', None, False),
@@ -767,6 +939,7 @@ ENUMS: dict[str, dict[int, str]] = {
     'CarpetCleanPriorityOption': {0: 'CARPET_CLEAN_PRIORITY_OPTION_UNSPECIFIED', 1: 'CARPET_CLEAN_PRIORITY_OPTION_DEFAULT', 2: 'CARPET_CLEAN_PRIORITY_OPTION_CARPET_FIRST'},
     'CarpetCleanSidebrushOption': {0: 'CARPET_CLEAN_SIDEBRUSH_OPTION_UNSPECIFIED', 1: 'CARPET_CLEAN_SIDEBRUSH_OPTION_DISBALED', 2: 'CARPET_CLEAN_SIDEBRUSH_OPTION_ENABLED'},
     'CarpetDeepCleanOption': {0: 'CARPET_DEEP_CLEAN_OPTION_UNSPECIFIED', 1: 'CARPET_DEEP_CLEAN_OPTION_DISABLE', 2: 'CARPET_DEEP_CLEAN_OPTION_ENABLE'},
+    'CarpetOperation_Operation': {0: 'OPERATION_CARPET_CLEAN_OPTION', 1: 'OPERATION_ADD_CARPET', 2: 'OPERATION_SET_CARPET', 3: 'OPERATION_DELETE_CARPET'},
     'CarpetOptionAdaptStrategy': {0: 'CARPET_OPTION_ADAPT_STRATEGY_UNSPECIFIED', 1: 'CARPET_OPTION_ADAPT_STRATEGY_DISABLED', 2: 'CARPET_OPTION_ADAPT_STRATEGY_SMART'},
     'CleanCornerFreq': {0: 'CLEAN_CORNER_FREQ_UNSPECIFIED', 1: 'CLEAN_CORNER_FREQ_OFF', 2: 'CLEAN_CORNER_FREQ_EVERY_N_TIMES', 3: 'CLEAN_CORNER_FREQ_EVERY_N_DAYS'},
     'CleanMode': {0: 'CLEAN_MODE_UNSPECIFIED', 1: 'CLEAN_MODE_SMART', 2: 'CLEAN_MODE_SWEEP', 3: 'CLEAN_MODE_MOP', 4: 'CLEAN_MODE_SWEEP_MOP_SYNC', 5: 'CLEAN_MODE_SWEEP_THEN_MOP', 6: 'CLEAN_MODE_COMPOSITE_CLEAN'},
@@ -780,9 +953,12 @@ ENUMS: dict[str, dict[int, str]] = {
     'DryDustBagLevel': {0: 'DRY_DUST_BAG_LEVEL_UNSPECIFIED', 1: 'DRY_DUST_BAG_LEVEL_DEFAULT', 2: 'DRY_DUST_BAG_LEVEL_LEVEL1', 3: 'DRY_DUST_BAG_LEVEL_LEVEL2', 4: 'DRY_DUST_BAG_LEVEL_LEVEL3', 5: 'DRY_DUST_BAG_LEVEL_LEVEL4'},
     'DryMopStrength': {0: 'DRY_MOP_STRENGTH_UNSPECIFIED', 1: 'DRY_MOP_STRENGTH_QUIET', 2: 'DRY_MOP_STRENGTH_STRONG', 3: 'DRY_MOP_STRENGTH_SMART'},
     'DustBagDetectStage': {0: 'DUST_BAG_DETECT_UNSPECIFIED', 1: 'DUST_BAG_DETECT_NOT_START', 2: 'DUST_BAG_DETECT_DOING', 3: 'DUST_BAG_DETECT_FINISH_WAIT_START_DRY_DUST_BAG', 4: 'DUST_BAG_DETECT_ALREADY_START_DRY_DUST_BAG'},
+    'ErrorCode': {0: 'ERROR_CODE_UNSPECIFIED', 1: 'ERROR_CODE_UNMATCHED_EDIT_VERSION', 2: 'ERROR_CODE_ROOM_NUMS_EXCEED', 3: 'ERROR_CODE_ROOM_AREA_TOO_SMALL', 4: 'ERROR_CODE_INVALID_CARPET_OPERATION', 5: 'ERROR_CODE_INVALID_ROOM_SPLIT_SEGMENT', 6: 'ERROR_CODE_SAME_NEW_ROOM_IDS', 7: 'ERROR_CODE_DUPLICATE_NEW_ROOM_ID', 8: 'ERROR_CODE_UNMATCHED_NEW_ROOM_ID', 9: 'ERROR_CODE_INVALID_ADD_FORBIDDEN_REGION', 10: 'ERROR_CODE_ROOM_INFO_NOT_EXIST', 11: 'ERROR_CODE_INVALID_GROUND_TEXTURE_TYPE', 12: 'ERROR_CODE_INVALID_MERGE_ROOM_NOT_ADJACENT', 13: 'ERROR_CODE_MAP_NOT_EXIST', 14: 'ERROR_CODE_OUT_OF_MAP_BORDER', 15: 'ERROR_CODE_ROOM_OVERLAP', 16: 'ERROR_CODE_INVALID_ROOM_ADJACENT', 17: 'ERROR_CODE_INCONSISTENT_ROOM_ID', 18: 'ERROR_CODE_BEAUTIFY_ROOM_SEG_FAIL', 19: 'ERROR_CODE_SEG_MULTI_ROOM', 20: 'ERROR_CODE_BEAUTIFY_ROOM_MERGE_FAIL', 101: 'ERROR_CODE_FIND_SEGMENT_ROOM_ID_FAIL', 102: 'ERROR_CODE_INVALID_FIRST_ROOM_CENTER_FOR_MERGE', 103: 'ERROR_CODE_INVALID_SECOND_ROOM_CENTER_FOR_MERGE', 104: 'ERROR_CODE_INVALID_MAP_CANNOT_MERGE'},
     'FanLevel': {0: 'FAN_LEVEL_UNSPECIFIED', 1: 'FAN_LEVEL_MUTE', 2: 'FAN_LEVEL_NORMAL', 3: 'FAN_LEVEL_STRONG', 4: 'FAN_LEVEL_DEEP', 5: 'FAN_LEVEL_SUPER'},
+    'ForbiddenAreaOperation_Operation': {0: 'OPERATION_UNSPECIFIED', 1: 'OPERATION_SET', 2: 'OPERATION_DELETE'},
     'ForbiddenArea_ForbiddenMode': {0: 'FORBIDDEN_MODE_REGION', 1: 'FORBIDDEN_MODE_ROOM'},
     'ForbiddenArea_ForbiddenType': {0: 'FORBIDDEN_TYPE_UNSPECIFIED', 1: 'FORBIDDEN_TYPE_SWEEP', 2: 'FORBIDDEN_TYPE_MOP', 3: 'FORBIDDEN_TYPE_SWEEP_MOP'},
+    'Furniture_FurnitureTexture': {0: 'MATERIAL_DEFAULT', 6: 'MATERIAL_WOOD', 7: 'MATERIAL_TILE', 8: 'MATERIAL_COBBLESTONE', 9: 'MATERIAL_TATAMI', 10: 'MATERIAL_MARBLE', 11: 'MATERIAL_STONE', 12: 'MATERIAL_COAT', 13: 'MATERIAL_PLASTIC', 14: 'MATERIAL_GEM', 15: 'MATERIAL_CLOTH', 16: 'MATERIAL_METAL', 17: 'MATERIAL_LEATHER', 18: 'MATERIAL_MIRROR', 19: 'MATERIAL_TRANSPARENT'},
     'GetDeviceBaseStatus_Response_ResultType': {0: 'RESULT_TYPE_UNSPECIFIED', 1: 'RESULT_TYPE_SUCCESS', 2: 'RESULT_TYPE_FAILED'},
     'GetFeatureList_Response_AgoraVideoStreamingType': {0: 'AGORA_VIDEO_STREAMING_DEFAULT', 1: 'AGORA_VIDEO_STREAMING_AAC'},
     'GetFeatureList_Response_OBS_AVOID_FEATURE': {0: 'OBS_AVOID_FEATURE_UNSPECIFIED', 1: 'OBS_AVOID_FEATURE_MONOCULAR', 2: 'OBS_AVOID_FEATURE_BINOCULAR'},
@@ -790,13 +966,16 @@ ENUMS: dict[str, dict[int, str]] = {
     'GetFeatureList_Response_VisionObsFeature': {0: 'VISION_OBS_FEATURE_UNSPECIFIED', 1: 'VISION_OBS_FEATURE_PIC', 2: 'VISION_OBS_FEATURE_ICON'},
     'GetMap_Request_RequestType': {0: 'REQUEST_TYPE_UNSPECIFIED', 1: 'REQUEST_TYPE_QUERY_MAP_EXIST', 2: 'REQUEST_TYPE_PERCEPTION_DEBUG_ROOM_MAP', 3: 'REQUEST_TYPE_PERCEPTION_DEBUG_LIDAR_SEGMENT_MAP', 4: 'REQUEST_TYPE_GET_MAP_WITHOUT_ROBOT_TRAJECTORY'},
     'Language': {0: 'LANGUAGE_UNSPECIFIED', 1: 'LANGUAGE_CHINESE_SIMPLE', 2: 'LANGUAGE_CHINESE_TRADITIONAL', 3: 'LANGUAGE_ENGLISH', 4: 'LANGUAGE_KOREAN', 5: 'LANGUAGE_JAPANESE', 6: 'LANGUAGE_GERMANY', 7: 'LANGUAGE_HEBREW', 8: 'LANGUAGE_ITALIAN', 9: 'LANGUAGE_FRENCH', 10: 'LANGUAGE_SPANISH', 11: 'LANGUAGE_RUSSIAN', 12: 'LANGUAGE_POLISH', 13: 'LANGUAGE_TURKISH', 14: 'LANGUAGE_THAI', 15: 'LANGUAGE_VIETNAMESE'},
+    'MapBuildType': {0: 'MAP_BUILD_TYPE_UNSPECIFIED', 1: 'MAP_BUILD_TYPE_MAIN_MAP', 2: 'MAP_BUILD_TYPE_TEMP_MAP', 3: 'MAP_BUILD_TYPE_MULTI_MAP'},
     'MapRequestFormat': {0: 'MAP_REQUEST_FORMAT_COMPRESSED_GRID', 1: 'MAP_REQUEST_FORMAT_CONTOUR'},
     'MapStairType': {0: 'MAP_STAIR_TYPE_UNSPECIFIED', 1: 'MAP_STAIR_TYPE_EXIST', 2: 'MAP_STAIR_TYPE_NOT_EXIST'},
     'MissionTriggerType': {0: 'MISSION_TRIGGER_TYPE_UNSPECIFIED', 1: 'MISSION_TRIGGER_TYPE_APP', 2: 'MISSION_TRIGGER_TYPE_STATION', 3: 'MISSION_TRIGGER_TYPE_ROBOT', 4: 'MISSION_TRIGGER_TYPE_SCHEDULE', 5: 'MISSION_TRIGGER_TYPE_SYSTEM', 6: 'MISSION_TRIGGER_TYPE_SPEECH', 7: 'MISSION_TRIGGER_TYPE_HW_CENTRAL_SCREEN', 8: 'MISSION_TRIGGER_TYPE_HW_H5', 9: 'MISSION_TRIGGER_TYPE_LLM', 10: 'MISSION_TRIGGER_TYPE_AIOT', 11: 'MISSION_TRIGGER_TYPE_MATTER'},
     'MopHumidity': {0: 'MOP_HUMIDITY_UNSPECIFIED', 1: 'MOP_HUMIDITY_DRY', 2: 'MOP_HUMIDITY_NORMAL', 3: 'MOP_HUMIDITY_WET'},
     'MopStrengthLevel': {0: 'MOP_STRENGTH_LEVEL_UNSPECIFIED', 1: 'MOP_STRENGTH_LEVEL_NORMAL', 2: 'MOP_STRENGTH_LEVEL_HIGH'},
+    'NoCarpetAreaOperation_Operation': {0: 'OPERATION_UNSPECIFIED', 1: 'ADD_NO_CARPET_AREA', 2: 'MODIFY_NO_CARPET_AREA', 3: 'DELETE_NO_CARPET_AREA'},
     'OverlapLevel': {0: 'OVERLAP_LEVEL_UNSPECIFIED', 1: 'OVERLAP_LEVEL_NORMAL', 2: 'OVERLAP_LEVEL_DENSE'},
     'ParallelTaskType': {0: 'PARALLEL_TASK_TYPE_UNSPECIFIED', 1: 'PARALLEL_TASK_TYPE_DRY_STATION_BAG', 2: 'PARALLEL_TASK_TYPE_STATION_BAG_STERILIZATION', 3: 'PARALLEL_TASK_TYPE_DRY_MOP', 4: 'PARALLEL_TASK_TYPE_WASH_MOP', 5: 'PARALLEL_TASK_TYPE_DRY_BAG', 6: 'PARALLEL_TASK_TYPE_CLEAN_TASK', 7: 'PARALLEL_TASK_TYPE_VIDEO_CRUISE'},
+    'PetHeatAreaOperation_Operation': {0: 'OPERATION_UNSPECIFIED', 1: 'OPERATION_SET', 2: 'OPERATION_DELETE'},
     'PetIconType': {0: 'PET_ICON_TYPE_UNSPECIFIED', 1: 'PET_ICON_TYPE_CAT', 2: 'PET_ICON_TYPE_DOG', 3: 'PET_ICON_TYPE_CAT_AND_DOG'},
     'RobotBaseStatus_BatteryCooling': {0: 'BATTERY_COOLING_UNSPECIFIED', 1: 'BATTERY_COOLING_STATION_FAN_ON', 2: 'BATTERY_COOLING_OFF'},
     'RobotBaseStatus_ChargingStatus': {0: 'CHG_STATUS_UNSPECIFIED', 1: 'CHG_STATUS_CHARGING', 2: 'CHG_STATUS_DISCHARGING', 3: 'CHG_STATUS_NOT_CHARGING', 4: 'CHG_STATUS_FULL', 5: 'CHG_STATUS_BATTERY_PROTECT'},
@@ -841,6 +1020,9 @@ ENUMS: dict[str, dict[int, str]] = {
     'RoomInfo_FloorTexture': {0: 'FLOOR_TEXTURE_UNSPECIFIED', 1: 'FLOOR_TEXTURE_WOOD', 2: 'FLOOR_TEXTURE_TILE', 3: 'FLOOR_TEXTURE_COBBLESTONE', 4: 'FLOOR_TEXTURE_TATAMI', 5: 'FLOOR_TEXTURE_MARBLE'},
     'ScheduleErrorCode_ErrorCode': {0: 'ERROR_CODE_UNSPECIFIED', 1: 'ERROR_CODE_SUCCESS', 2: 'ERROR_CODE_UNKNOWN_FAILURE', 3: 'ERROR_CODE_CLEAN_PLAN_MISSED', 4: 'ERROR_CODE_TASK_ID_NOT_EXIST', 5: 'ERROR_CODE_DATABASE_FULL', 6: 'ERROR_CODE_PARAMETER_ERROR', 7: 'ERROR_CODE_INTERNAL_ERROR'},
     'ServiceResult': {0: 'SERVICE_RESULT_UNSPECIFIED', 1: 'SERVICE_RESULT_PERFORM_SUCCESS', 2: 'SERVICE_RESULT_PERFORM_GENERAL_FAILED', 3: 'SERVICE_RESULT_ALREADY_EXECUTING', 4: 'SERVICE_RESULT_POWER_LOWER', 5: 'SERVICE_RESULT_ROBOT_TRAPPED_IN_STATION', 6: 'SERVICE_RESULT_ROBOT_IN_STATION_WHEN_RECALL', 7: 'SERVICE_RESULT_ROBOT_NOT_IN_STATION_WHEN_BUILD_MAP', 8: 'SERVICE_RESULT_ROBOT_NOT_CONTACT_WITH_STATION', 9: 'SERVICE_RESULT_DUST_BOX_NOT_INSTALLED', 10: 'SERVICE_RESULT_MOP_NOT_INSTALLED', 11: 'SERVICE_RESULT_FORBIDDEN_TASK_IN_NET_CONFIG', 12: 'SERVICE_RESULT_FORBIDDEN_TASK_IN_UPGRADE', 13: 'SERVICE_RESULT_FORBIDDEN_TASK_IN_BLUETOOTH_PAIRING', 14: 'SERVICE_RESULT_FORBIDDEN_TASK_IN_AUTO_WATER_SELF_CHECK', 15: 'SERVICE_RESULT_FORBIDDEN_RECALL_IN_RE_LOCALIZATION', 16: 'SERVICE_RESULT_FORBIDDEN_TASK_IF_NOT_ACTIVATED', 17: 'SERVICE_RESULT_FORBIDDEN_TASK_IF_STATION_NOT_CONNECTED', 18: 'SERVICE_RESULT_FORBIDDEN_TASK_IF_CAN_NOT_REACH_SPECIFIED_AREA', 19: 'SERVICE_RESULT_FORBIDDEN_TASK_WHEN_CHARGE', 20: 'SERVICE_RESULT_FORBIDDEN_RECALL_WHEN_NO_MAP', 21: 'SERVICE_RESULT_LIDAR_CALIBRATION_SUCCESS', 22: 'SERVICE_RESULT_NO_NEED_UPDATE_MAP', 23: 'SERVICE_RESULT_NOT_IN_MAIN_MAP', 24: 'SERVICE_RESULT_NO_STATION_IN_MAP', 25: 'SERVICE_RESULT_FORBIDDEN_TASK_IF_STATION_IN_CERTIFICATION', 26: 'SERVICE_RESULT_UPPER_COVER_NOT_INSTALLED', 27: 'SERVICE_RESULT_STATION_BAG_UNINSTALL', 28: 'SERVICE_RESULT_IN_TELECONTROL', 29: 'SERVICE_RESULT_FORBIDDEN_IN_SECOND_CLEAN', 30: 'SERVICE_RESULT_FAILED_DURING_MOTOR_COOLING', 31: 'SERVICE_RESULT_STATION_LIGHT_CTRL_FAILED', 32: 'SERVICE_RESULT_STATION_LIGHT_CTRL_TIMEOUT'},
+    'SetFurnitureOperation_Operation': {0: 'OPERATION_UNSPECIFIED', 1: 'OPERATION_SET', 2: 'OPERATION_DELETE'},
+    'SetManualControlMode_Request_ManualControlMode': {0: 'MANUAL_CONTROL_MODE_OFF', 1: 'MANUAL_CONTROL_MODE_JOYSTICK', 2: 'MANUAL_CONTROL_MODE_CLEAN_DEFAULT', 3: 'MANUAL_CONTROL_MODE_SWEEP_MUTE', 4: 'MANUAL_CONTROL_MODE_SWEEP_NORMAL', 5: 'MANUAL_CONTROL_MODE_SWEEP_STRONG', 6: 'MANUAL_CONTROL_MODE_SWEEP_DEEP', 7: 'MANUAL_CONTROL_MODE_SWEEP_SUPER'},
+    'SlopeOperation_Operation': {0: 'OPERATION_UNSPECIFIED', 1: 'OPERATION_MODIFY', 2: 'OPERATION_DELETE', 3: 'OPERATION_ADD'},
     'SmartCleanSetting': {0: 'SMART_CLEAN_UNSPECIFIED', 1: 'SMART_CLEAN_QUICK', 2: 'SMART_CLEAN_NORMAL', 3: 'SMART_CLEAN_DEEP'},
     'StaticMapPayload_MapDataFormat': {0: 'MAP_DATA_FORMAT_UNSPECIFIED', 1: 'MAP_DATA_FORMAT_PROTOBUF_ORIGIN', 2: 'MAP_DATA_FORMAT_PROTOBUF_STRING', 3: 'MAP_DATA_FORMAT_COMPRESSED_ON_GZIP', 4: 'MAP_DATA_FORMAT_REDUCED', 5: 'MAP_DATA_FORMAT_CONTOUR'},
     'StaticMapPayload_RobotTrajectoryFormat': {0: 'ROBOT_TRAJECTORY_FORMAT_UNSPECIFIED', 1: 'ROBOT_TRAJECTORY_FORMAT_PROTOBUF_ORIGIN', 2: 'ROBOT_TRAJECTORY_FORMAT_PROTOBUF_STRING', 3: 'ROBOT_TRAJECTORY_FORMAT_COMPRESSED_ON_GZIP'},
@@ -848,6 +1030,9 @@ ENUMS: dict[str, dict[int, str]] = {
     'SweepIntensityLevel': {0: 'SWEEP_INTENSITY_LEVEL_UNSPECIFIED', 1: 'SWEEP_INTENSITY_LEVEL_MUTE', 2: 'SWEEP_INTENSITY_LEVEL_NORMAL', 3: 'SWEEP_INTENSITY_LEVEL_STRONG', 4: 'SWEEP_INTENSITY_LEVEL_DEEP'},
     'TaskResult': {0: 'TASK_RESULT_UNSPECIFIED', 1: 'TASK_RESULT_NORMAL_END', 2: 'TASK_RESULT_USER_FORCE_END', 3: 'TASK_RESULT_SHUTDOWN_FORCE_END', 4: 'TASK_RESULT_LOW_BATTERY_FORCE_END', 5: 'TASK_RESULT_OVERFLOW_FORCE_END', 6: 'TASK_RESULT_PAUSE_TOO_LONG_FORCE_END', 7: 'TASK_RESULT_SYSTEM_ERROR_FORCE_END', 8: 'TASK_RESULT_USER_FORCE_END_ON_STATION', 9: 'TASK_RESULT_USER_FORCE_END_ON_APP', 10: 'TASK_RESULT_RECALL_END', 11: 'TASK_RESULT_NORMAL_END_WITH_REPLENISH_MAP_FAIL', 12: 'TASK_RESULT_MAP_UNMATCHED_FORCE_END', 13: 'TASK_RESULT_RELOCATION_FAIL_ON_MAP_WITH_STATION_FORCE_END', 14: 'TASK_RESULT_RELOCATION_FAIL_ON_MAP_WITHOUT_STATION_FORCE_END', 15: 'TASK_RESULT_PRETASK_ERROR_FORCE_END', 16: 'TASK_RESULT_SCHEDULE_TASK_FORCE_END', 17: 'TASK_RESULT_UNEXECUTED', 18: 'TASK_RESULT_NOT_FIND_PET'},
     'TaskType': {0: 'TASK_TYPE_UNSPECIFIED', 1: 'TASK_TYPE_GENERAL_SWEEP', 2: 'TASK_TYPE_GENERAL_MOP', 3: 'TASK_TYPE_GENERAL_SWEEP_THEN_MOP', 4: 'TASK_TYPE_GENERAL_SWEEP_MOP_SYNC', 5: 'TASK_TYPE_CUSTOM_CLEAN', 6: 'TASK_TYPE_SHORTCUT', 7: 'TASK_TYPE_SCHEDULED', 8: 'TASK_TYPE_NAVO_CLEAN'},
+    'TelecontrolVelocity_VelocityType': {0: 'VELOCITY_TYPE_UNSPECIFIED', 1: 'VELOCITY_TYPE_PERCENTAGE', 2: 'VELOCITY_TYPE_ACTUAL'},
+    'ThresholdOperation_Operation': {0: 'OPERATION_UNSPECIFIED', 1: 'OPERATION_MODIFY', 2: 'OPERATION_DELETE', 3: 'OPERATION_ADD'},
+    'VirtualWallOperation_Operation': {0: 'OPERATION_UNSPECIFIED', 1: 'OPERATION_MODIFY', 2: 'OPERATION_DELETE', 3: 'OPERATION_ADD'},
     'VisionObsLabel': {0: 'VISION_OBS_LABEL_UNSPECIFIED', 1: 'VISION_OBS_LABEL_CABLE', 2: 'VISION_OBS_LABEL_TISSUE', 3: 'VISION_OBS_LABEL_POOP', 4: 'VISION_OBS_LABEL_LIQUID', 5: 'VISION_OBS_LABEL_SHOES', 6: 'VISION_OBS_LABEL_SOLID', 7: 'VISION_OBS_LABEL_SOCKS', 8: 'VISION_OBS_LABEL_PLASTIC_BAG', 9: 'VISION_OBS_LABEL_TRASH_BIN', 10: 'VISION_OBS_LABEL_NORMAL', 11: 'VISION_OBS_LABEL_UNCLEANABLE', 12: 'VISION_OBS_LABEL_TEXTILES', 13: 'VISION_OBS_LABEL_NOT_EXIST', 14: 'VISION_OBS_LABEL_GROUND_TEXTURE', 15: 'VISION_OBS_LABEL_PET', 16: 'VISION_OBS_LABEL_CLIFF', 17: 'VISION_OBS_LABEL_SQUATTING_WC', 18: 'VISION_OBS_LABEL_CHAIR_U_LEGS', 19: 'VISION_OBS_LABEL_CHAIR_WHEEL', 20: 'VISION_OBS_LABEL_FLOOR_MIRROR', 21: 'VISION_OBS_LABEL_BOOK', 22: 'VISION_OBS_LABEL_STICK', 23: 'VISION_OBS_MERGE_FLEXIBLE', 24: 'VISION_OBS_LABEL_JEWELRY', 25: 'VISION_OBS_LABEL_PHONE', 26: 'VISION_OBS_LABEL_WALLET', 27: 'VISION_OBS_LABEL_KEY', 28: 'VISION_OBS_LABEL_BANKNOTE', 29: 'VISION_OBS_LABEL_REMOTE_CONTROL', 30: 'VISION_OBS_LABEL_GLASSES', 31: 'VISION_OBS_LABEL_WATCH', 32: 'VISION_OBS_LABEL_CARD', 33: 'VISION_OBS_LABEL_HEADPHONES', 34: 'VISION_OBS_LABEL_BABY_TOY', 35: 'VISION_OBS_LABEL_PLANT', 36: 'VISION_OBS_LABEL_FITNESS_EQUIPMENT', 37: 'VISION_OBS_LABEL_PET_TOY', 38: 'VISION_OBS_LABEL_DANGEROUS_GOODS', 39: 'VISION_OBS_LABEL_DECORATION', 40: 'VISION_OBS_LABEL_PAPER_BOX', 41: 'VISION_OBS_LABEL_PET_CAT', 42: 'VISION_OBS_LABEL_PET_DOG', 43: 'VISION_OBS_LABEL_CARPET', 44: 'VISION_OBS_LABEL_SCALE', 45: 'VISION_OBS_LABEL_PET_BOWL'},
     'ZoneType': {0: 'ZONE_TYPE_UNSPECIFIED', 1: 'ZONE_TYPE_ROOM', 2: 'ZONE_TYPE_ZONE', 3: 'ZONE_TYPE_WHOLE_MAP'},
 }

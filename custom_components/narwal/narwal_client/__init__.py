@@ -1,6 +1,6 @@
 """Narwal MQTT client library."""
 
-from .client import NarwalClient, NarwalCommandError, NarwalConnectionError
+from .client import NarwalBrokerAuthError, NarwalClient, NarwalCommandError, NarwalConnectionError
 from .cloud import NarwalAuthError, NarwalCloud, NarwalCloudError, NarwalCloudSession, NarwalDevice
 from .const import CleanMode, FanLevel, MopHumidity
 from .models import CommandResponse, MapSnapshot, NarwalState, Pose, RoomInfo
@@ -12,6 +12,7 @@ __all__ = [
     "MapSnapshot",
     "MopHumidity",
     "NarwalAuthError",
+    "NarwalBrokerAuthError",
     "NarwalClient",
     "NarwalCloud",
     "NarwalCloudError",

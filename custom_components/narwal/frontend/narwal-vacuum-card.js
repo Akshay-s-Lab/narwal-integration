@@ -1,4 +1,4 @@
-const CARD_VERSION = "2.0.0";
+const CARD_VERSION = "2.1.0";
 
 const MODES = [
   { label: "Vacuum & Mop", value: "Vacuum & Mop" },
@@ -25,7 +25,31 @@ const EDITOR_SCHEMA = [
   { name: "camera_entity", selector: { entity: { domain: "camera" } } },
   { name: "battery_entity", selector: { entity: { domain: "sensor" } } },
   { name: "mode_entity", selector: { entity: { domain: "select" } } },
+  { name: "show_remote", selector: { boolean: {} } },
 ];
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// Affine map->image transform from three calibration points, and its inverse.
+function solveAffine(points) {
+  const [p0, p1, p2] = points;
+  const det = (p1.vacuum.x - p0.vacuum.x) * (p2.vacuum.y - p0.vacuum.y)
+    - (p2.vacuum.x - p0.vacuum.x) * (p1.vacuum.y - p0.vacuum.y);
+  const col = (key) => {
+    const d1 = p1.map[key] - p0.map[key];
+    const d2 = p2.map[key] - p0.map[key];
+    const a = (d1 * (p2.vacuum.y - p0.vacuum.y) - d2 * (p1.vacuum.y - p0.vacuum.y)) / det;
+    const b = (d2 * (p1.vacuum.x - p0.vacuum.x) - d1 * (p2.vacuum.x - p0.vacuum.x)) / det;
+    return [a, b, p0.map[key] - a * p0.vacuum.x - b * p0.vacuum.y];
+  };
+  const [a, b, c] = col("x");
+  const [d, e, f] = col("y");
+  const inv = a * e - b * d;
+  return {
+    toImage: (x, y) => [a * x + b * y + c, d * x + e * y + f],
+    toMap: (u, v) => [(e * (u - c) - b * (v - f)) / inv, (a * (v - f) - d * (u - c)) / inv],
+  };
+}
 
 class NarwalVacuumCardEditor extends HTMLElement {
   _config = {};
@@ -97,6 +121,10 @@ class NarwalVacuumCard extends HTMLElement {
     this._initialized = false;
     this._mapPicture = null;
     this._lastMapRefresh = 0;
+    this._drawing = false;
+    this._zones = [];
+    this._drag = null;
+    this._driveTimer = null;
   }
 
   static getConfigElement() {
@@ -184,11 +212,18 @@ class NarwalVacuumCard extends HTMLElement {
           .banner.show { display: flex; }
           .banner.error { background: rgba(219, 68, 55, 0.15); color: var(--error-color, #db4437); }
           .banner.maint { background: rgba(255, 166, 0, 0.15); color: var(--warning-color, #ffa600); }
-          .map-container { width: 100%; border-radius: 12px; overflow: hidden;
+          .map-container { position: relative; width: 100%; border-radius: 12px; overflow: hidden;
             background: var(--card-background-color, #1c1c1c); margin: 8px 0 16px;
             aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center; }
           .map-container img { width: 100%; height: 100%; object-fit: contain; }
           .map-container .no-map { color: var(--secondary-text-color); font-size: 0.85em; }
+          .map-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+          .map-overlay.drawing { touch-action: none; cursor: crosshair; }
+          .map-overlay .zone { fill: rgba(3, 169, 244, 0.25); stroke: var(--primary); stroke-width: 2; }
+          .map-overlay .no-go { fill: rgba(219, 68, 55, 0.3); stroke: #db4437; stroke-width: 2; cursor: pointer; }
+          .map-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 16px; }
+          .remote { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+          .remote .action-btn { padding: 10px 6px; touch-action: none; }
           .section-label { font-size: 0.75em; font-weight: 600; text-transform: uppercase;
             letter-spacing: 0.5px; color: var(--secondary-text-color); margin-bottom: 8px; }
           .row-head { display: flex; align-items: baseline; gap: 12px; }
@@ -225,6 +260,7 @@ class NarwalVacuumCard extends HTMLElement {
           <div class="banner error">${ICON("mdi:alert-circle-outline", 18)}<span class="text"></span></div>
           <div class="banner maint">${ICON("mdi:wrench-clock", 18)}<span class="text"></span></div>
           <div class="map-container"><span class="no-map">No map available</span></div>
+          <div class="map-tools" id="map-tools"></div>
 
           <div class="row-head">
             <div class="section-label">Rooms</div>
@@ -248,6 +284,7 @@ class NarwalVacuumCard extends HTMLElement {
 
           <div class="actions" id="actions"></div>
           <div class="dock" id="dock"></div>
+          <div class="remote" id="remote"></div>
         </div>
       </ha-card>
     `;
@@ -256,6 +293,202 @@ class NarwalVacuumCard extends HTMLElement {
     root.getElementById("select-none").addEventListener("click", () => this._selectNone());
     this._buildModes();
     this._buildActions();
+    this._buildMapTools();
+    this._buildRemote();
+  }
+
+  /* --- Zones and no-go areas drawn on the map ---------------------- */
+
+  _buildMapTools() {
+    const tools = this.shadowRoot.getElementById("map-tools");
+    tools.innerHTML = "";
+    const add = (id, html, onClick) => {
+      const btn = this._chip("", onClick);
+      btn.id = id;
+      btn.innerHTML = html;
+      tools.appendChild(btn);
+    };
+    add("draw-btn", `${ICON("mdi:vector-rectangle", 16)} Draw`, () => this._toggleDrawing());
+    add("zone-clean-btn", `${ICON("mdi:play", 16)} Clean zones`, () => this._cleanZones());
+    add("no-go-btn", `${ICON("mdi:cancel", 16)} Make no-go`, () => this._addNoGo());
+    add("zone-clear-btn", `${ICON("mdi:close", 16)} Clear`, () => { this._zones = []; this._drawOverlay(); });
+    this._updateMapTools();
+  }
+
+  _updateMapTools() {
+    const root = this.shadowRoot;
+    root.getElementById("draw-btn").classList.toggle("active", this._drawing);
+    const has = this._zones.length > 0;
+    for (const id of ["zone-clean-btn", "no-go-btn", "zone-clear-btn"]) root.getElementById(id).disabled = !has;
+    root.getElementById("zone-clean-btn").lastChild.textContent = has ? ` Clean ${this._zones.length} zone${this._zones.length > 1 ? "s" : ""}` : " Clean zones";
+  }
+
+  _toggleDrawing() {
+    this._drawing = !this._drawing;
+    const overlay = this.shadowRoot.querySelector(".map-overlay");
+    if (overlay) overlay.classList.toggle("drawing", this._drawing);
+    this._updateMapTools();
+  }
+
+  _transform() {
+    const points = this._state(this._camera())?.attributes?.calibration_points;
+    return Array.isArray(points) && points.length === 3 ? solveAffine(points) : null;
+  }
+
+  _eventToImage(evt) {
+    const svg = this.shadowRoot.querySelector(".map-overlay");
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const pt = new DOMPoint(evt.clientX, evt.clientY).matrixTransform(ctm.inverse());
+    return [pt.x, pt.y];
+  }
+
+  _attachOverlay(container, img) {
+    let svg = container.querySelector(".map-overlay");
+    if (!svg) {
+      svg = document.createElementNS(SVG_NS, "svg");
+      svg.classList.add("map-overlay");
+      svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      svg.addEventListener("pointerdown", (e) => this._pointerDown(e));
+      svg.addEventListener("pointermove", (e) => this._pointerMove(e));
+      svg.addEventListener("pointerup", (e) => this._pointerUp(e));
+      container.appendChild(svg);
+      img.addEventListener("load", () => this._drawOverlay());
+    }
+    svg.classList.toggle("drawing", this._drawing);
+  }
+
+  _pointerDown(evt) {
+    if (!this._drawing) return;
+    const start = this._eventToImage(evt);
+    if (!start) return;
+    evt.currentTarget.setPointerCapture(evt.pointerId);
+    this._drag = { start, end: start };
+  }
+
+  _pointerMove(evt) {
+    if (!this._drag) return;
+    this._drag.end = this._eventToImage(evt) || this._drag.end;
+    this._drawOverlay();
+  }
+
+  _pointerUp() {
+    if (!this._drag) return;
+    const { start, end } = this._drag;
+    this._drag = null;
+    if (Math.abs(end[0] - start[0]) > 6 && Math.abs(end[1] - start[1]) > 6) this._zones.push([start, end]);
+    this._drawOverlay();
+    this._updateMapTools();
+  }
+
+  _zonesInMap() {
+    const t = this._transform();
+    if (!t) return [];
+    return this._zones.map(([a, b]) => {
+      const [x1, y1] = t.toMap(a[0], a[1]);
+      const [x2, y2] = t.toMap(b[0], b[1]);
+      return [x1, y1, x2, y2].map((v) => Math.round(v));
+    });
+  }
+
+  _cleanZones() {
+    const zones = this._zonesInMap();
+    if (!zones.length) return;
+    this._hass.callService("vacuum", "send_command", {
+      entity_id: this._config.entity,
+      command: "clean_zones",
+      params: { zones, mode: this._selectedMode },
+    });
+    this._zones = [];
+    this._drawOverlay();
+    this._updateMapTools();
+  }
+
+  async _addNoGo() {
+    for (const zone of this._zonesInMap()) {
+      await this._hass.callService("vacuum", "send_command", {
+        entity_id: this._config.entity, command: "add_no_go_zone", params: { zone },
+      });
+    }
+    this._zones = [];
+    this._drawOverlay();
+    this._updateMapTools();
+  }
+
+  _drawOverlay() {
+    const svg = this.shadowRoot.querySelector(".map-overlay");
+    const img = this.shadowRoot.querySelector(".map-container img");
+    if (!svg || !img || !img.naturalWidth) return;
+    svg.setAttribute("viewBox", `0 0 ${img.naturalWidth} ${img.naturalHeight}`);
+    svg.replaceChildren();
+    const rect = (a, b, cls) => {
+      const r = document.createElementNS(SVG_NS, "rect");
+      r.setAttribute("x", Math.min(a[0], b[0]));
+      r.setAttribute("y", Math.min(a[1], b[1]));
+      r.setAttribute("width", Math.abs(b[0] - a[0]));
+      r.setAttribute("height", Math.abs(b[1] - a[1]));
+      r.setAttribute("class", cls);
+      svg.appendChild(r);
+    };
+    const t = this._transform();
+    const noGo = this._hass?.states[this._config.entity]?.attributes?.no_go_zones || [];
+    if (t) {
+      for (const zone of noGo) {
+        const poly = document.createElementNS(SVG_NS, "polygon");
+        poly.setAttribute("points", zone.points.map(([x, y]) => t.toImage(x, y).join(",")).join(" "));
+        poly.setAttribute("class", "no-go");
+        poly.addEventListener("click", () => {
+          if (this._drawing || !confirm("Remove this no-go zone?")) return;
+          this._hass.callService("vacuum", "send_command", {
+            entity_id: this._config.entity, command: "remove_no_go_zone", params: { id: zone.id },
+          });
+        });
+        svg.appendChild(poly);
+      }
+    }
+    for (const [a, b] of this._zones) rect(a, b, "zone");
+    if (this._drag) rect(this._drag.start, this._drag.end, "zone");
+  }
+
+  /* --- Manual drive ------------------------------------------------- */
+
+  _buildRemote() {
+    const remote = this.shadowRoot.getElementById("remote");
+    remote.innerHTML = "";
+    if (!this._config.show_remote) return;
+    const send = (command, params) => this._hass.callService("vacuum", "send_command", {
+      entity_id: this._config.entity, command, params,
+    });
+    const hold = (linear, angular) => {
+      const stop = () => {
+        clearInterval(this._driveTimer);
+        this._driveTimer = null;
+        send("drive", { linear: 0, angular: 0 });
+      };
+      return (evt) => {
+        evt.preventDefault();
+        send("drive", { linear, angular });
+        this._driveTimer = setInterval(() => send("drive", { linear, angular }), 300);
+        evt.currentTarget.addEventListener("pointerup", stop, { once: true });
+        evt.currentTarget.addEventListener("pointerleave", stop, { once: true });
+      };
+    };
+    const cells = [
+      ["mdi:gamepad-variant", "Manual", () => send("manual_control", { enabled: true })],
+      ["mdi:arrow-up-bold", "", null, hold(40, 0)],
+      ["mdi:stop", "Exit", () => send("manual_control", { enabled: false })],
+      ["mdi:rotate-left", "", null, hold(0, 40)],
+      ["mdi:arrow-down-bold", "", null, hold(-30, 0)],
+      ["mdi:rotate-right", "", null, hold(0, -40)],
+    ];
+    for (const [icon, label, onClick, onHold] of cells) {
+      const btn = document.createElement("button");
+      btn.className = "action-btn secondary";
+      btn.innerHTML = `${ICON(icon, 18)} ${label}`;
+      if (onClick) btn.addEventListener("click", onClick);
+      if (onHold) btn.addEventListener("pointerdown", onHold);
+      remote.appendChild(btn);
+    }
   }
 
   _chip(label, onClick) {
@@ -446,6 +679,8 @@ class NarwalVacuumCard extends HTMLElement {
       img.onerror = () => { this._mapPicture = null; };
       mapContainer.appendChild(img);
     }
+    this._attachOverlay(mapContainer, img);
+    this._drawOverlay();
     // The integration rotates the camera's access token whenever the map or
     // the robot's position changes, so a new entity_picture means a new image.
     const picture = state.attributes.entity_picture;

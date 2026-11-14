@@ -20,6 +20,7 @@ from . import NarwalConfigEntry
 from .coordinator import NarwalCoordinator
 from .entity import NarwalEntity
 from .narwal_client import NarwalState
+from .narwal_client.const import CONSUMABLE_LIFETIME_HOURS
 from .narwal_client.error_codes import error_message
 from .narwal_client.proto import enum_labels
 
@@ -169,13 +170,45 @@ SENSORS: tuple[NarwalSensorDescription, ...] = (
 )
 
 
+_LIFE_ICONS = {
+    "DUST_FILTER": "mdi:air-filter",
+    "MOP": "mdi:water-outline",
+    "SIDE_BRUSH": "mdi:pinwheel-outline",
+    "ROLLER_BRUSH": "mdi:barrel-outline",
+}
+
+
+def _used_hours(state: NarwalState, item: str) -> float:
+    return state.consumable_seconds.get(item, 0.0) / 3600
+
+
+def _life_sensor(item: str, lifetime: int) -> NarwalSensorDescription:
+    key = f"{item.lower()}_life"
+    return NarwalSensorDescription(
+        key=key,
+        translation_key=key,
+        icon=_LIFE_ICONS[item],
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda s, i=item, h=lifetime: max(0, round(100 - _used_hours(s, i) / h * 100)),
+        attrs_fn=lambda s, i=item, h=lifetime: {
+            "used_hours": round(_used_hours(s, i), 1),
+            "lifetime_hours": h,
+            "tracking_since": s.consumable_tracking_since,
+        },
+    )
+
+
+LIFE_SENSORS = tuple(_life_sensor(item, hours) for item, hours in CONSUMABLE_LIFETIME_HOURS.items())
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NarwalConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(NarwalSensor(coordinator, d) for d in SENSORS)
+    async_add_entities(NarwalSensor(coordinator, d) for d in (*SENSORS, *LIFE_SENSORS))
 
 
 class NarwalSensor(NarwalEntity, SensorEntity):

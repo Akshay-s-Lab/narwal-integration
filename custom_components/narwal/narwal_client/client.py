@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import ssl
 import threading
 import time
@@ -32,7 +33,13 @@ from .const import (
     TOPIC_CMD_GET_DEVICE_INFO,
     TOPIC_CMD_GET_FEATURE_LIST,
     TOPIC_CMD_GET_FIRMWARE_VERSION,
+    TOPIC_CMD_BUILD_MAP,
+    TOPIC_CMD_GET_EDITABLE_MAP,
     TOPIC_CMD_GET_MAP,
+    TOPIC_CMD_MAP_OPERATION,
+    TOPIC_CMD_SAVE_MAP_UPDATE,
+    TOPIC_CMD_SET_MANUAL_CONTROL,
+    TOPIC_CMD_VELOCITY_CONTROL,
     TOPIC_CMD_PAUSE,
     TOPIC_CMD_RECALL,
     TOPIC_CMD_RESET_CONSUMABLE,
@@ -52,10 +59,38 @@ from .const import (
     FanLevel,
     MopHumidity,
 )
-from .models import CommandResponse, MapSnapshot, NarwalState, Pose, strip_narwal_frame
+from .models import CommandResponse, MapSnapshot, NarwalState, NoGoZone, Pose, strip_narwal_frame
 from .proto import ProtoError, decode, encode, encode_varint
 
 _LOGGER = logging.getLogger(__name__)
+
+# The robot ignored a 0.6 x 0.5 m zone and cleaned a 1.2 x 1.2 m one.
+MIN_ZONE_SIDE_MM = 960
+
+_ZONE_TASK_TYPES = {
+    CleanMode.VACUUM_ONLY: "TASK_TYPE_GENERAL_SWEEP",
+    CleanMode.MOP_ONLY: "TASK_TYPE_GENERAL_MOP",
+    CleanMode.VACUUM_THEN_MOP: "TASK_TYPE_GENERAL_SWEEP_THEN_MOP",
+    CleanMode.VACUUM_AND_MOP: "TASK_TYPE_GENERAL_SWEEP_MOP_SYNC",
+}
+
+
+def _coverage_path(left: int, bottom: int, right: int, top: int, step: int = 2) -> list[dict[str, int]]:
+    """A serpentine walk over the rectangle's interior cells."""
+    points: list[dict[str, int]] = []
+    forward = True
+    for y in range(bottom + 1, top, step):
+        xs = range(left + 1, right) if forward else range(right - 1, left, -1)
+        points.extend({"x": x, "y": y} for x in xs)
+        forward = not forward
+    return points or [{"x": (left + right) // 2, "y": (bottom + top) // 2}]
+
+
+_NO_GO_TYPES = {
+    "all": "FORBIDDEN_TYPE_SWEEP_MOP",
+    "vacuum": "FORBIDDEN_TYPE_SWEEP",
+    "mop": "FORBIDDEN_TYPE_MOP",
+}
 
 # Response message type for each command we decode.
 RESPONSE_TYPES: dict[str, str] = {
@@ -96,6 +131,10 @@ class NarwalConnectionError(Exception):
     """Raised when connection to the vacuum fails."""
 
 
+class NarwalBrokerAuthError(NarwalConnectionError):
+    """Raised when the MQTT broker rejects the credentials."""
+
+
 class NarwalCommandError(Exception):
     """Raised when a command fails, is rejected, or times out."""
 
@@ -122,17 +161,19 @@ class NarwalClient:
         product_key: str,
         device_name: str,
         user_uuid: str,
-        mqtt_username: str,
-        mqtt_password: str,
+        mqtt_username: str | None,
+        mqtt_password: str | None,
         mqtt_client_id: str | None = None,
         broker: str = MQTT_BROKER,
         port: int = MQTT_PORT,
+        use_tls: bool = True,
     ) -> None:
         self.product_key = product_key
         self.device_name = device_name
         self.user_uuid = user_uuid
         self.broker = broker
         self.port = port
+        self.use_tls = use_tls
 
         self.state = NarwalState()
         self.on_state_update: Callable[[NarwalState], None] | None = None
@@ -144,6 +185,8 @@ class NarwalClient:
 
         self._client: mqtt.Client | None = None
         self._connected = threading.Event()
+        self._connect_settled = threading.Event()
+        self._connect_rejection: str | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._pending_responses: dict[str, tuple[threading.Event, list[bytes | None]]] = {}
         self._pending_subacks: dict[int, threading.Event] = {}
@@ -188,13 +231,19 @@ class NarwalClient:
         """Connect to the MQTT broker (blocking parts run in an executor)."""
         self._loop = asyncio.get_running_loop()
         self._connected.clear()
+        self._connect_settled.clear()
+        self._connect_rejection = None
 
         def _connect_blocking() -> None:
             self._setup_mqtt_client()
-            if not self._connected.wait(timeout=15.0):
-                if self._client:
-                    self._client.loop_stop()
-                raise NarwalConnectionError("MQTT connection timed out")
+            settled = self._connect_settled.wait(timeout=15.0)
+            if self._connected.is_set():
+                return
+            if self._client:
+                self._client.loop_stop()
+            if settled and self._connect_rejection:
+                raise NarwalBrokerAuthError(f"MQTT broker rejected the connection: {self._connect_rejection}")
+            raise NarwalConnectionError("MQTT connection timed out")
 
         await self._loop.run_in_executor(None, _connect_blocking)
         await self.notify_active()
@@ -208,8 +257,10 @@ class NarwalClient:
             protocol=mqtt.MQTTv5,
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         )
-        self._client.username_pw_set(self._mqtt_username, self._mqtt_password)
-        self._client.tls_set_context(ssl.create_default_context())
+        if self._mqtt_username:
+            self._client.username_pw_set(self._mqtt_username, self._mqtt_password or None)
+        if self.use_tls:
+            self._client.tls_set_context(ssl.create_default_context())
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         self._client.on_disconnect = self._on_disconnect
@@ -220,6 +271,8 @@ class NarwalClient:
     def _on_connect(self, client, userdata, connect_flags, reason_code, properties=None):
         if not (str(reason_code) == "Success" or reason_code == 0):
             _LOGGER.error("MQTT connection rejected: %s", reason_code)
+            self._connect_rejection = str(reason_code)
+            self._connect_settled.set()
             return
         _LOGGER.info("MQTT connected (%s)", self.base_topic)
         self._subscribed.clear()
@@ -229,6 +282,7 @@ class NarwalClient:
             client.subscribe(topic, qos=1)
             self._subscribed.add(topic)
         self._connected.set()
+        self._connect_settled.set()
         self.state.device_reachable = True
         self._notify_state_update()
 
@@ -433,6 +487,9 @@ class NarwalClient:
         static = resp.message.get("map")
         if not isinstance(static, dict):
             return None
+        return self._apply_static_map(static)
+
+    def _apply_static_map(self, static: dict[str, Any]) -> MapSnapshot | None:
         self.state.update_rooms_from_map(static)
         border = static.get("border") or {}
         grid = static.get("mapData") or b""
@@ -553,6 +610,51 @@ class NarwalClient:
         passes: int = 1,
     ) -> bytes:
         """Encode a StartClean_Request: one CleanItem per room, in order."""
+        zones = [{"zoneType": "ZONE_TYPE_ROOM", "zoneId": room_id} for room_id in room_ids]
+        return self._build_start_clean(zones, mode, fan_level, mop_humidity, passes)
+
+    def build_zone_clean_request(
+        self,
+        zones: list[tuple[int, int, int, int]],
+        mode: CleanMode = CleanMode.VACUUM_AND_MOP,
+        fan_level: FanLevel | None = None,
+        mop_humidity: MopHumidity | None = None,
+        passes: int = 1,
+    ) -> bytes:
+        """Encode rectangles (x1, y1, x2, y2) in map grid units; cleaningBounds is the path driven."""
+        options = []
+        for zone_id, (x1, y1, x2, y2) in enumerate(zones, start=1):
+            left, right = sorted((int(x1), int(x2)))
+            bottom, top = sorted((int(y1), int(y2)))
+            options.append({
+                "zoneType": "ZONE_TYPE_ZONE",
+                "zoneId": zone_id,
+                "selectionBounds": [
+                    {"x": left, "y": top},
+                    {"x": right, "y": top},
+                    {"x": right, "y": bottom},
+                    {"x": left, "y": bottom},
+                ],
+                "cleaningBounds": _coverage_path(left, bottom, right, top),
+            })
+        return self._build_start_clean(
+            options, mode, fan_level, mop_humidity, passes,
+            task_type=_ZONE_TASK_TYPES[mode],
+            option={"enableSmartMode": True},
+            param_extra={"overlapLevel": "OVERLAP_LEVEL_NORMAL", "enableSmartMode": True},
+        )
+
+    def _build_start_clean(
+        self,
+        zones: list[dict[str, Any]],
+        mode: CleanMode,
+        fan_level: FanLevel | None,
+        mop_humidity: MopHumidity | None,
+        passes: int,
+        task_type: str = "TASK_TYPE_CUSTOM_CLEAN",
+        option: dict[str, Any] | None = None,
+        param_extra: dict[str, Any] | None = None,
+    ) -> bytes:
         fan = fan_level or self.state.fan_level or FanLevel.NORMAL
         mop = mop_humidity or self.state.mop_humidity or MopHumidity.NORMAL
         vacuum = mode in (CleanMode.VACUUM_ONLY, CleanMode.VACUUM_AND_MOP, CleanMode.VACUUM_THEN_MOP)
@@ -565,18 +667,21 @@ class NarwalClient:
             CleanMode.VACUUM_THEN_MOP: {"sweepTime": passes, "mopTime": passes},
         }[mode]
         items = []
-        for order, room_id in enumerate(room_ids, start=1):
+        for order, zone in enumerate(zones, start=1):
             items.append({
-                "zone": {"zoneType": "ZONE_TYPE_ROOM", "zoneId": room_id},
+                "zone": zone,
                 "param": {
                     "mode": CLEAN_MODE_LABEL[mode],
                     "fanLevel": fan.value if vacuum else None,
                     "mopHumidity": mop.value if mopping else None,
                     **times,
+                    **(param_extra or {}),
                 },
                 "order": order,
             })
-        task: dict[str, Any] = {"items": items, "taskType": "TASK_TYPE_CUSTOM_CLEAN"}
+        task: dict[str, Any] = {"items": items, "taskType": task_type}
+        if option:
+            task["option"] = option
         if self.state.map and self.state.map.map_id:
             task["mapId"] = self.state.map.map_id
         return encode("StartClean_Request", {"task": task})
@@ -602,6 +707,160 @@ class NarwalClient:
             raise NarwalCommandError("Cannot start: no rooms known yet (map not loaded)")
         request = self.build_clean_request(room_ids, mode, fan_level, mop_humidity, passes)
         return await self.send_command(TOPIC_CMD_START_CLEAN, request)
+
+    async def start_zone_clean(
+        self,
+        zones: list[tuple[int, int, int, int]],
+        mode: CleanMode = CleanMode.VACUUM_AND_MOP,
+        fan_level: FanLevel | None = None,
+        mop_humidity: MopHumidity | None = None,
+        passes: int = 1,
+    ) -> CommandResponse:
+        """Clean rectangles (x1, y1, x2, y2) given in the map's grid units."""
+        if not zones:
+            raise NarwalCommandError("Cannot start: no zones given")
+        await self.notify_active()
+        if self.state.map is None:
+            await self.fetch_map()
+        resolution = self.state.map.resolution_mm if self.state.map else 60
+        min_side = math.ceil(MIN_ZONE_SIDE_MM / resolution)
+        for x1, y1, x2, y2 in zones:
+            if abs(x2 - x1) < min_side or abs(y2 - y1) < min_side:
+                raise NarwalCommandError(
+                    f"Zone {(x1, y1, x2, y2)} is too small: the robot ignores zones under "
+                    f"{min_side} grid cells (about {MIN_ZONE_SIDE_MM / 1000:.1f} m) per side"
+                )
+        request = self.build_zone_clean_request(zones, mode, fan_level, mop_humidity, passes)
+        return await self.send_command(TOPIC_CMD_START_CLEAN, request)
+
+    # ------------------------------------------------------------------
+    # Map editing (map/operation applies edits against the current edit version)
+    # ------------------------------------------------------------------
+
+    async def get_editable_map(self) -> dict[str, Any]:
+        """The map the robot accepts edits against, with its edit version."""
+        if self.state.map is None:
+            await self.fetch_map()
+        map_id = self.state.map.map_id if self.state.map else 0
+        resp = await self.send_command(
+            TOPIC_CMD_GET_EDITABLE_MAP, encode("GetEditableMap_Request", {"mapId": map_id}),
+            response_type="GetEditableMap_Response", timeout=15.0,
+        )
+        return resp.message
+
+    async def edit_map(self, operations: list[dict[str, Any]]) -> CommandResponse:
+        """Apply MapOperationPayload operations; the robot returns the updated map."""
+        editable = await self.get_editable_map()
+        static = editable.get("map") or {}
+        request = encode("MapOperation_Request", {
+            "mapId": static.get("mapId") or (self.state.map.map_id if self.state.map else 0),
+            "mapVersion": static.get("mapVersion", 0),
+            "editVersion": editable.get("editVersion", 0),
+            "operations": operations,
+        })
+        resp = await self.send_command(
+            TOPIC_CMD_MAP_OPERATION, request, response_type="MapOperation_Response", timeout=15.0,
+        )
+        updated = resp.message.get("map")
+        if isinstance(updated, dict):
+            self._apply_static_map(updated)
+        return resp
+
+    async def add_no_go_zone(self, polygon: list[tuple[float, float]], kind: str = "all") -> NoGoZone:
+        """Add a no-go region (polygon in map grid units); kind is all, vacuum or mop."""
+        if len(polygon) < 3:
+            raise NarwalCommandError("A no-go zone needs at least three points")
+        if kind not in _NO_GO_TYPES:
+            raise NarwalCommandError(f"Unknown no-go kind {kind!r}; use all, vacuum or mop")
+        if self.state.map is None:
+            await self.fetch_map()
+        zone_id = max((z.zone_id for z in self.state.no_go_zones), default=0) + 1
+        await self.edit_map([{"forbiddenAreaOperation": {
+            "operation": "OPERATION_SET",
+            "forbidden": {
+                "polygon": [{"x": float(x), "y": float(y)} for x, y in polygon],
+                "type": _NO_GO_TYPES[kind],
+                "id": zone_id,
+                "mode": "FORBIDDEN_MODE_REGION",
+            },
+        }}])
+        return NoGoZone(zone_id, [(float(x), float(y)) for x, y in polygon], kind)
+
+    async def add_barrier(
+        self, start: tuple[float, float], end: tuple[float, float], width: float = 1.0
+    ) -> NoGoZone:
+        """A virtual wall as a thin no-go strip; the CX7 has no native virtual walls."""
+        (x1, y1), (x2, y2) = start, end
+        length = math.hypot(x2 - x1, y2 - y1)
+        if length < 1:
+            raise NarwalCommandError("A barrier must be at least one grid cell long")
+        nx, ny = -(y2 - y1) / length * width / 2, (x2 - x1) / length * width / 2
+        polygon = [(x1 + nx, y1 + ny), (x2 + nx, y2 + ny), (x2 - nx, y2 - ny), (x1 - nx, y1 - ny)]
+        return await self.add_no_go_zone(polygon, "all")
+
+    async def remove_no_go_zone(self, zone_id: int) -> CommandResponse:
+        return await self.edit_map([{"forbiddenAreaOperation": {
+            "operation": "OPERATION_DELETE", "forbidden": {"id": int(zone_id)},
+        }}])
+
+    async def rename_room(self, room_id: int, name: str) -> CommandResponse:
+        """Set a room's custom name; an empty name falls back to the room type's name."""
+        editable = await self.get_editable_map()
+        info = next(
+            (r for r in (editable.get("map") or {}).get("roomInfos", []) if r.get("roomId") == room_id),
+            None,
+        )
+        if info is None:
+            raise NarwalCommandError(f"Unknown room id {room_id}")
+        return await self.edit_map([{"roomInfoOperation": {"roomInfo": {**info, "customName": name}}}])
+
+    async def merge_rooms(self, room_a: int, room_b: int) -> CommandResponse:
+        return await self.edit_map([{"roomMergeOperation": {"roomId1": int(room_a), "roomId2": int(room_b)}}])
+
+    async def split_room(
+        self, room_id: int, start: tuple[float, float], end: tuple[float, float]
+    ) -> CommandResponse:
+        """Split a room along a line given in map grid units."""
+        return await self.edit_map([{"roomSegOperation": {
+            "startSegPoint": {"x": round(start[0]), "y": round(start[1])},
+            "endSegPoint": {"x": round(end[0]), "y": round(end[1])},
+            "leftRoomId": int(room_id),
+        }}])
+
+    # ------------------------------------------------------------------
+    # Mapping and manual control
+    # ------------------------------------------------------------------
+
+    async def start_mapping(self, rebuild_current: bool = True) -> CommandResponse:
+        """Explore and build the main map; with rebuild_current the existing map is replaced."""
+        await self.notify_active()
+        request = encode("BuildMap_Request", {
+            "buildType": "MAP_BUILD_TYPE_MAIN_MAP", "isRebuildCurrentMap": rebuild_current,
+        })
+        return await self.send_command(TOPIC_CMD_BUILD_MAP, request, response_type="BuildMap_Response")
+
+    async def save_map_update(self) -> CommandResponse:
+        resp = await self.send_command(
+            TOPIC_CMD_SAVE_MAP_UPDATE, b"", response_type="SaveMapUpdate_Response", check=False,
+        )
+        await self.fetch_map()
+        return resp
+
+    async def set_manual_control(self, enabled: bool) -> CommandResponse:
+        mode = "MANUAL_CONTROL_MODE_JOYSTICK" if enabled else "MANUAL_CONTROL_MODE_OFF"
+        return await self.send_command(
+            TOPIC_CMD_SET_MANUAL_CONTROL,
+            encode("SetManualControlMode_Request", {"manualControlMode": mode}),
+            response_type="SetManualControlMode_Response",
+        )
+
+    async def drive(self, linear: int, angular: int) -> None:
+        """Joystick step: linear and angular velocity as -100..100 percent."""
+        await self._publish_no_response(TOPIC_CMD_VELOCITY_CONTROL, encode("TelecontrolVelocity", {
+            "linearVelocity": max(-100, min(100, int(linear))),
+            "angularVelocity": max(-100, min(100, int(angular))),
+            "type": "VELOCITY_TYPE_PERCENTAGE",
+        }))
 
     # ------------------------------------------------------------------
     # Teardown / discovery

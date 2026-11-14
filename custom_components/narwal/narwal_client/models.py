@@ -70,6 +70,13 @@ _TASK_NAMES = {
 }
 _IN_STATION_IDLE = frozenset({"IDLE_STATUS_IN_STATION", "IDLE_STATUS_LOW_POWER_IN_STATION"})
 _CONTACTED = frozenset({"STATION_CONTACT_TYPE_CONTACTED", "STATION_CONTACT_TYPE_CHARGING"})
+TRAIL_MIN_STEP = 0.5  # grid cells
+NO_GO_KINDS = {
+    "FORBIDDEN_TYPE_SWEEP": "vacuum",
+    "FORBIDDEN_TYPE_MOP": "mop",
+    "FORBIDDEN_TYPE_SWEEP_MOP": "all",
+}
+TRAIL_MAX_POINTS = 5000
 
 
 def _pretty(label: Any, prefix: str = "") -> str:
@@ -189,6 +196,15 @@ class MapSnapshot:
 
 
 @dataclass
+class NoGoZone:
+    """A no-go region from the map's forbidden areas (polygon in map grid units)."""
+
+    zone_id: int
+    polygon: list[tuple[float, float]]
+    kind: str = "all"
+
+
+@dataclass
 class NarwalState:
     """Current vacuum state assembled from pushes and command responses."""
 
@@ -202,8 +218,13 @@ class NarwalState:
     rooms: list[RoomInfo] = field(default_factory=list)
     map: MapSnapshot | None = None
     robot_pose: Pose | None = None
+    trail: list[tuple[float, float]] = field(default_factory=list)
+    task_seconds: int = 0
+    consumable_seconds: dict[str, float] = field(default_factory=dict)
+    consumable_tracking_since: str | None = None
     current_room_id: int | None = None
     no_go_room_ids: set[int] = field(default_factory=set)
+    no_go_zones: list[NoGoZone] = field(default_factory=list)
     preferred_fan_level: FanLevel | None = None
     preferred_mop_humidity: MopHumidity | None = None
     last_base_update: float = 0.0
@@ -212,8 +233,12 @@ class NarwalState:
 
     def update_base_status(self, base: dict[str, Any]) -> None:
         prev = self.activity
+        was_cleaning = self.is_cleaning
         self.base = base
         self.last_base_update = time.time()
+        if self.is_cleaning and not was_cleaning:
+            self.trail = []
+            self.task_seconds = 0
         if self.activity != prev:
             _LOGGER.info(
                 "Narwal activity %s -> %s (task=%s, sub=%s)",
@@ -222,6 +247,9 @@ class NarwalState:
 
     def update_working_status(self, working: dict[str, Any]) -> None:
         self.working = working
+        elapsed = working.get("timeConsuming")
+        if self.is_cleaning and isinstance(elapsed, int):
+            self.task_seconds = max(self.task_seconds, elapsed)
         zone = working.get("cleaningZoneId")
         if isinstance(zone, int) and zone:
             self.current_room_id = zone
@@ -230,9 +258,20 @@ class NarwalState:
         pose = Pose.from_msg(display.get("robot"))
         if pose:
             self.robot_pose = pose
+            if self.is_cleaning:
+                self._extend_trail(pose)
         zone = display.get("currentCleanZoneId")
         if isinstance(zone, int):
             self.current_room_id = zone or None
+
+    def _extend_trail(self, pose: Pose) -> None:
+        if self.trail:
+            last_x, last_y = self.trail[-1]
+            if abs(pose.x - last_x) < TRAIL_MIN_STEP and abs(pose.y - last_y) < TRAIL_MIN_STEP:
+                return
+        self.trail.append((pose.x, pose.y))
+        if len(self.trail) > TRAIL_MAX_POINTS:
+            del self.trail[: len(self.trail) - TRAIL_MAX_POINTS]
 
     def update_rooms_from_map(self, static_map: dict[str, Any]) -> None:
         rooms: list[RoomInfo] = []
@@ -257,6 +296,15 @@ class NarwalState:
             and f.get("type") in ("FORBIDDEN_TYPE_SWEEP_MOP", "FORBIDDEN_TYPE_UNSPECIFIED", None)
             and f.get("roomId")
         }
+        self.no_go_zones = [
+            NoGoZone(
+                zone_id=int(f.get("id", 0) or 0),
+                polygon=[(float(p.get("x", 0.0)), float(p.get("y", 0.0))) for p in f.get("polygon", [])],
+                kind=NO_GO_KINDS.get(f.get("type"), "all"),
+            )
+            for f in static_map.get("forbiddens", [])
+            if isinstance(f, dict) and f.get("mode") != "FORBIDDEN_MODE_ROOM" and f.get("polygon")
+        ]
 
     # ---- derived properties -------------------------------------------
 

@@ -59,6 +59,14 @@ TOPIC_CMD_GET_SCHEDULE = "schedule/clean_schedule/get"
 # Map
 TOPIC_CMD_GET_MAP = "map/get_map"
 TOPIC_CMD_GET_ALL_MAPS = "map/get_all_reduced_maps"
+TOPIC_CMD_GET_EDITABLE_MAP = "map/get_editable_map"
+TOPIC_CMD_MAP_OPERATION = "map/operation"
+TOPIC_CMD_BUILD_MAP = "map/build_map/start"
+TOPIC_CMD_SAVE_MAP_UPDATE = "map/save_map_update_info"
+
+# --- Manual control ---
+TOPIC_CMD_SET_MANUAL_CONTROL = "telecontrol/set_manual_control_mode"
+TOPIC_CMD_VELOCITY_CONTROL = "telecontrol/velocity_control"
 
 # --- Push topics (robot -> client) ---
 TOPIC_WORKING_STATUS = "status/working_status"
@@ -159,4 +167,12 @@ ROOM_SUB_TYPE_NAMES: dict[int, str] = {
     13: "Recreation Room",
     14: "Storage Room",
     15: "Other",
+}
+
+# Rated replacement intervals in cleaning hours, from the app's J4/J5 consumables tables.
+CONSUMABLE_LIFETIME_HOURS: dict[str, int] = {
+    "DUST_FILTER": 150,
+    "MOP": 150,
+    "SIDE_BRUSH": 150,
+    "ROLLER_BRUSH": 300,
 }
