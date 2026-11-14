@@ -9,6 +9,7 @@ from homeassistant.components.switch import SwitchEntity, SwitchEntityDescriptio
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import NarwalConfigEntry
 from .coordinator import NarwalCoordinator
@@ -35,11 +36,21 @@ SWITCHES: tuple[NarwalSwitchDescription, ...] = (
     NarwalSwitchDescription(key="pet_mode", translation_key="pet_mode",
                             config_key="petMode", icon="mdi:paw"),
     NarwalSwitchDescription(key="smart_deep_clean", translation_key="smart_deep_clean",
-                            config_key="smartDeepCleanEnabled", icon="mdi:auto-fix",
-                            entity_registry_enabled_default=False),
+                            config_key="smartDeepCleanEnabled", icon="mdi:auto-fix"),
     NarwalSwitchDescription(key="hot_water_wash", translation_key="hot_water_wash",
-                            config_key="hotWaterWashEnabled", icon="mdi:water-thermometer",
-                            entity_registry_enabled_default=False),
+                            config_key="hotWaterWashEnabled", icon="mdi:water-thermometer"),
+    NarwalSwitchDescription(key="crossing_boost", translation_key="crossing_boost",
+                            config_key="boostCrossingModeEnabled", icon="mdi:stairs-up"),
+    NarwalSwitchDescription(key="dirt_detection", translation_key="dirt_detection",
+                            config_key="smartCleanDetectionEnabled", icon="mdi:eye-outline"),
+    NarwalSwitchDescription(key="heavy_dirt_deep_clean", translation_key="heavy_dirt_deep_clean",
+                            config_key="massiveDirtyDeepCleanEnable", icon="mdi:texture"),
+    NarwalSwitchDescription(key="pad_moisture_protection", translation_key="pad_moisture_protection",
+                            config_key="moistureProofPadProtectEnabled", icon="mdi:water-off"),
+    NarwalSwitchDescription(key="dust_bag_drying", translation_key="dust_bag_drying",
+                            config_key="dryRobotBagEnabled", icon="mdi:sun-thermometer"),
+    NarwalSwitchDescription(key="auto_power_off", translation_key="auto_power_off",
+                            config_key="automaticPoweroffWhenDischarging", icon="mdi:power"),
 )
 
 
@@ -51,6 +62,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     entities: list[SwitchEntity] = [NarwalConfigSwitch(coordinator, d) for d in SWITCHES]
     entities.append(NarwalDndSwitch(coordinator))
+    entities.append(NarwalStainRemoverSwitch(coordinator))
     async_add_entities(entities)
 
 
@@ -130,4 +142,36 @@ class NarwalDndSwitch(NarwalEntity, SwitchEntity):
             "endTime": self._dnd.get("endTime", 8 * 3600),
         }
         await self._run(self.coordinator.client.set_config(disturbMode=dnd))
+        self.async_write_ha_state()
+
+
+class NarwalStainRemoverSwitch(NarwalEntity, SwitchEntity, RestoreEntity):
+    """Use the heavy-duty stain remover in the next clean (kept in HA)."""
+
+    _attr_translation_key = "stain_remover"
+    _attr_icon = "mdi:spray"
+
+    def __init__(self, coordinator: NarwalCoordinator) -> None:
+        super().__init__(coordinator, "stain_remover")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last:
+            self.coordinator.use_stain_remover = last.state == "on"
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.use_stain_remover
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        self.coordinator.use_stain_remover = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        self.coordinator.use_stain_remover = False
         self.async_write_ha_state()

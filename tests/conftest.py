@@ -70,6 +70,13 @@ class FakeRobot:
             "dryMopStrength": "DRY_MOP_STRENGTH_SMART",
             "cleanMopFreq": "CLEAN_MOP_FREQ_NORMAL",
             "carpetCleanOption": "CARPET_CLEAN_OPTION_IGNORE",
+            "avoidMode": "AVOID_MODE_SMART",
+            "cleanCorner": {"cleanCornerFreq": "CLEAN_CORNER_FREQ_EVERY_N_DAYS"},
+            "smartCleanParam": {"overlapLevelStrategy": {"isCustomizeMode": True, "overlapLevel": "OVERLAP_LEVEL_DENSE"}},
+            "customCleanStrategy": {
+                "strategy": "CUSTOM_CLEAN_AREA",
+                "cleanOrders": [{"defaultRoomCleanOrder": [3, 2, 1], "mapId": 1}],
+            },
         }
         self.reject: set[str] = set()
         self.edit_version = 7
@@ -108,7 +115,10 @@ class FakeRobot:
         if command == "config/set":
             from custom_components.narwal.narwal_client.proto import decode
 
-            self.config.update(decode("SetConfig_Request", request))
+            changes = decode("SetConfig_Request", request)
+            if "cleanCornerSetting" in changes:  # read back under GetConfig's own field
+                changes["cleanCorner"] = changes.pop("cleanCornerSetting")
+            self.config.update(changes)
             return frame(encode("SetConfig_Response", ok))
         if command == "consumable/get_consumable_info":
             return frame(encode("GetConsumableInfo_Response", {

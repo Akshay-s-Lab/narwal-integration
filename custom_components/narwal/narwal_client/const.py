@@ -110,6 +110,7 @@ class CleanMode(IntEnum):
     MOP_ONLY = 2  # CLEAN_MODE_MOP
     VACUUM_AND_MOP = 3  # CLEAN_MODE_SWEEP_MOP_SYNC
     VACUUM_THEN_MOP = 4  # CLEAN_MODE_SWEEP_THEN_MOP
+    FREO_MIND = 5  # CLEAN_MODE_SWEEP_MOP_SYNC with TaskOption.enableSmartMode
 
 
 CLEAN_MODE_LABEL: dict[CleanMode, str] = {
@@ -117,6 +118,7 @@ CLEAN_MODE_LABEL: dict[CleanMode, str] = {
     CleanMode.MOP_ONLY: "CLEAN_MODE_MOP",
     CleanMode.VACUUM_AND_MOP: "CLEAN_MODE_SWEEP_MOP_SYNC",
     CleanMode.VACUUM_THEN_MOP: "CLEAN_MODE_SWEEP_THEN_MOP",
+    CleanMode.FREO_MIND: "CLEAN_MODE_SWEEP_MOP_SYNC",
 }
 
 # ServiceResult labels that mean the command was accepted.

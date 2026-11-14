@@ -18,7 +18,11 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities([NarwalVolume(coordinator), NarwalCleanPasses(coordinator)])
+    async_add_entities([
+        NarwalVolume(coordinator),
+        NarwalPassesNumber(coordinator, "clean_passes", "mdi:repeat"),
+        NarwalPassesNumber(coordinator, "mop_passes", "mdi:repeat-variant"),
+    ])
 
 
 class NarwalVolume(NarwalEntity, NumberEntity):
@@ -50,24 +54,25 @@ class NarwalVolume(NarwalEntity, NumberEntity):
         self.async_write_ha_state()
 
 
-class NarwalCleanPasses(NarwalEntity, RestoreNumber):
-    """How many passes each room gets when HA starts a clean (kept in HA)."""
+class NarwalPassesNumber(NarwalEntity, RestoreNumber):
+    """Passes for the next clean, kept in HA; key names the coordinator attribute."""
 
-    _attr_translation_key = "clean_passes"
-    _attr_icon = "mdi:repeat"
     _attr_native_min_value = 1
     _attr_native_max_value = 3
     _attr_native_step = 1
     _attr_mode = NumberMode.BOX
 
-    def __init__(self, coordinator: NarwalCoordinator) -> None:
-        super().__init__(coordinator, "clean_passes")
+    def __init__(self, coordinator: NarwalCoordinator, key: str, icon: str) -> None:
+        super().__init__(coordinator, key)
+        self._key = key
+        self._attr_translation_key = key
+        self._attr_icon = icon
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         last = await self.async_get_last_number_data()
         if last and last.native_value:
-            self.coordinator.clean_passes = int(last.native_value)
+            setattr(self.coordinator, self._key, int(last.native_value))
 
     @property
     def available(self) -> bool:
@@ -75,8 +80,8 @@ class NarwalCleanPasses(NarwalEntity, RestoreNumber):
 
     @property
     def native_value(self) -> float:
-        return float(self.coordinator.clean_passes)
+        return float(getattr(self.coordinator, self._key))
 
     async def async_set_native_value(self, value: float) -> None:
-        self.coordinator.clean_passes = int(value)
+        setattr(self.coordinator, self._key, int(value))
         self.async_write_ha_state()

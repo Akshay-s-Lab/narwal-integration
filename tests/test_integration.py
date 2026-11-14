@@ -61,7 +61,7 @@ async def test_start_skips_no_go_rooms(hass: HomeAssistant, setup, robot) -> Non
     await hass.services.async_call("vacuum", "start", {"entity_id": VACUUM}, blocking=True)
     req = decode("StartClean_Request", robot.requests("clean/start_clean")[-1])
     items = req["task"]["items"]
-    assert [i["zone"]["zoneId"] for i in items] == [1, 2]
+    assert [i["zone"]["zoneId"] for i in items] == [2, 1]  # the robot's cleaning order, minus no-go room 3
     assert items[0]["param"]["mode"] == "CLEAN_MODE_SWEEP_MOP_SYNC"
     assert items[0]["param"]["sweepMopSyncTime"] == 1
     assert req["task"]["taskType"] == "TASK_TYPE_CUSTOM_CLEAN"
@@ -80,7 +80,9 @@ async def test_fan_speed_while_docked_applies_to_next_clean(hass: HomeAssistant,
     )
     await hass.services.async_call("vacuum", "start", {"entity_id": VACUUM}, blocking=True)
     param = decode("StartClean_Request", robot.requests("clean/start_clean")[-1])["task"]["items"][0]["param"]
-    assert param == {"mode": "CLEAN_MODE_SWEEP", "fanLevel": "FAN_LEVEL_SUPER", "sweepTime": 1}
+    assert param == {
+        "mode": "CLEAN_MODE_SWEEP", "fanLevel": "FAN_LEVEL_DEEP", "sweepTime": 1, "overlapLevel": "OVERLAP_LEVEL_NORMAL",
+    }
 
 
 async def test_clean_rooms_command(hass: HomeAssistant, setup, robot) -> None:
@@ -95,7 +97,7 @@ async def test_clean_rooms_command(hass: HomeAssistant, setup, robot) -> None:
     assert item["zone"] == {"zoneType": "ZONE_TYPE_ROOM", "zoneId": 2}
     assert item["param"] == {
         "mode": "CLEAN_MODE_SWEEP_THEN_MOP", "fanLevel": "FAN_LEVEL_STRONG",
-        "mopHumidity": "MOP_HUMIDITY_WET", "sweepTime": 2, "mopTime": 2,
+        "mopHumidity": "MOP_HUMIDITY_WET", "sweepTime": 2, "mopTime": 2, "overlapLevel": "OVERLAP_LEVEL_NORMAL",
     }
     with pytest.raises(ServiceValidationError):
         await hass.services.async_call(
@@ -241,7 +243,7 @@ async def test_pushes_drive_activity(hass: HomeAssistant, setup) -> None:
     await hass.async_block_till_done()
     state = hass.states.get(VACUUM)
     assert state.state == VacuumActivity.CLEANING
-    assert state.attributes["fan_speed"] == "Strong"
+    assert state.attributes["fan_speed"] == "Turbo"
     assert state.attributes["current_room"] == "Galley"
     assert hass.states.get(_eid(hass, "sensor", "cleaned_area")).state == "3.5"
     assert hass.states.get(_eid(hass, "sensor", "current_room")).state == "Galley"

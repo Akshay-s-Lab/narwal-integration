@@ -53,18 +53,21 @@ REGION_OPTIONS = {
     "cn": "China",
 }
 
-# Fan speed names shown in HA (order = app order).
+# Fan speed names shown in HA, in the app's order and wording.
 FAN_SPEED_MAP: dict[str, FanLevel] = {
     "Quiet": FanLevel.QUIET,
     "Normal": FanLevel.NORMAL,
-    "Strong": FanLevel.STRONG,
-    "Max": FanLevel.MAX,
+    "Turbo": FanLevel.STRONG,
+    "Max": FanLevel.DEEP,
+    "Ultra": FanLevel.MAX,
 }
 FAN_SPEED_LIST = list(FAN_SPEED_MAP)
 FAN_SPEED_REVERSE = {v: k for k, v in FAN_SPEED_MAP.items()}
+FAN_SPEED_ALIASES: dict[str, FanLevel] = {**FAN_SPEED_MAP, "Strong": FanLevel.STRONG}
 
 # Clean mode names are also used by the Lovelace card and send_command.
 CLEAN_MODE_MAP: dict[str, CleanMode] = {
+    "Freo Mind": CleanMode.FREO_MIND,
     "Vacuum & Mop": CleanMode.VACUUM_AND_MOP,
     "Vacuum then Mop": CleanMode.VACUUM_THEN_MOP,
     "Vacuum Only": CleanMode.VACUUM_ONLY,
@@ -72,6 +75,8 @@ CLEAN_MODE_MAP: dict[str, CleanMode] = {
 }
 CLEAN_MODE_LIST = list(CLEAN_MODE_MAP)
 CLEAN_MODE_REVERSE = {v: k for k, v in CLEAN_MODE_MAP.items()}
+
+COVERAGE_OPTIONS = ["standard", "intensive"]
 
 MOP_HUMIDITY_MAP: dict[str, MopHumidity] = {
     "dry": MopHumidity.DRY,

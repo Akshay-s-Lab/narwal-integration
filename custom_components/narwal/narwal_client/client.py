@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import math
 import ssl
@@ -59,7 +60,7 @@ from .const import (
     FanLevel,
     MopHumidity,
 )
-from .models import CommandResponse, MapSnapshot, NarwalState, NoGoZone, Pose, strip_narwal_frame
+from .models import CleanPlan, CommandResponse, MapSnapshot, NarwalState, NoGoZone, Pose, strip_narwal_frame
 from .proto import ProtoError, decode, encode, encode_varint
 
 _LOGGER = logging.getLogger(__name__)
@@ -590,6 +591,25 @@ class NarwalClient:
             self._notify_state_update()
         return resp
 
+    async def set_smart_clean_param(self, **strategies: dict[str, Any]) -> CommandResponse:
+        """Change Freo Mind's parameters, keeping the ones not named."""
+        current = self.state.config.get("smartCleanParam")
+        merged = {**(current if isinstance(current, dict) else {}), **strategies}
+        return await self.set_config(smartCleanParam=merged)
+
+    async def set_room_order(self, room_ids: list[int]) -> CommandResponse:
+        """Save the cleaning sequence for the current map (the app's Adjust cleaning sequence)."""
+        strategy = copy.deepcopy(self.state.config.get("customCleanStrategy") or {})
+        map_id = self.state.map.map_id if self.state.map else None
+        orders = strategy.setdefault("cleanOrders", [])
+        entry = next((o for o in orders if o.get("mapId") == map_id), None)
+        if entry is None:
+            entry = {"mapId": map_id}
+            orders.append(entry)
+        entry["isModified"] = True
+        entry["roomCleanOrder"] = list(room_ids)
+        return await self.set_config(customCleanStrategy=strategy)
+
     async def reset_consumable(self, replace_item: str) -> CommandResponse:
         request = encode("ResetConsumableInfo_Request", {
             "consumableInfo": {"replaceItems": [replace_item]},
@@ -601,32 +621,41 @@ class NarwalClient:
         await self.fetch_consumables()
         return resp
 
+    def room_clean_order(self) -> list[int]:
+        """Rooms in the order the robot cleans them (the app's cleaning sequence)."""
+        strategy = self.state.config.get("customCleanStrategy") or {}
+        map_id = self.state.map.map_id if self.state.map else None
+        orders = [o for o in strategy.get("cleanOrders") or [] if o.get("mapId") == map_id]
+        order = orders[0] if orders else strategy.get("cleanOrder") or {}
+        ids = order.get("roomCleanOrder") if order.get("isModified") else order.get("defaultRoomCleanOrder")
+        known = [r.room_id for r in self.state.rooms]
+        ranked = [r for r in ids or [] if r in known]
+        return ranked + [r for r in known if r not in ranked]
+
     def build_clean_request(
         self,
         room_ids: list[int],
-        mode: CleanMode = CleanMode.VACUUM_AND_MOP,
-        fan_level: FanLevel | None = None,
-        mop_humidity: MopHumidity | None = None,
-        passes: int = 1,
+        plan: CleanPlan = CleanPlan(),
+        room_plans: dict[int, CleanPlan] | None = None,
     ) -> bytes:
         """Encode a StartClean_Request: one CleanItem per room, in order."""
-        zones = [{"zoneType": "ZONE_TYPE_ROOM", "zoneId": room_id} for room_id in room_ids]
-        return self._build_start_clean(zones, mode, fan_level, mop_humidity, passes)
+        zones = [
+            ({"zoneType": "ZONE_TYPE_ROOM", "zoneId": room_id}, (room_plans or {}).get(room_id, plan))
+            for room_id in room_ids
+        ]
+        return self._build_start_clean(zones, plan)
 
     def build_zone_clean_request(
         self,
         zones: list[tuple[int, int, int, int]],
-        mode: CleanMode = CleanMode.VACUUM_AND_MOP,
-        fan_level: FanLevel | None = None,
-        mop_humidity: MopHumidity | None = None,
-        passes: int = 1,
+        plan: CleanPlan = CleanPlan(),
     ) -> bytes:
         """Encode rectangles (x1, y1, x2, y2) in map grid units; cleaningBounds is the path driven."""
         options = []
         for zone_id, (x1, y1, x2, y2) in enumerate(zones, start=1):
             left, right = sorted((int(x1), int(x2)))
             bottom, top = sorted((int(y1), int(y2)))
-            options.append({
+            options.append(({
                 "zoneType": "ZONE_TYPE_ZONE",
                 "zoneId": zone_id,
                 "selectionBounds": [
@@ -636,52 +665,50 @@ class NarwalClient:
                     {"x": left, "y": bottom},
                 ],
                 "cleaningBounds": _coverage_path(left, bottom, right, top),
-            })
+            }, plan))
+        mode = CleanMode.VACUUM_AND_MOP if plan.mode == CleanMode.FREO_MIND else plan.mode
         return self._build_start_clean(
-            options, mode, fan_level, mop_humidity, passes,
+            options, plan,
             task_type=_ZONE_TASK_TYPES[mode],
-            option={"enableSmartMode": True},
-            param_extra={"overlapLevel": "OVERLAP_LEVEL_NORMAL", "enableSmartMode": True},
+            param_extra={"enableSmartMode": True},
         )
+
+    def _clean_param(self, plan: CleanPlan) -> dict[str, Any]:
+        if plan.mode == CleanMode.FREO_MIND:
+            return {"mode": CLEAN_MODE_LABEL[plan.mode]}
+        fan = plan.fan_level or self.state.fan_level or FanLevel.NORMAL
+        mop = plan.mop_humidity or self.state.mop_humidity or MopHumidity.NORMAL
+        vacuum = plan.mode in (CleanMode.VACUUM_ONLY, CleanMode.VACUUM_AND_MOP, CleanMode.VACUUM_THEN_MOP)
+        mopping = plan.mode in (CleanMode.MOP_ONLY, CleanMode.VACUUM_AND_MOP, CleanMode.VACUUM_THEN_MOP)
+        times = {
+            CleanMode.VACUUM_ONLY: {"sweepTime": plan.passes},
+            CleanMode.MOP_ONLY: {"mopTime": plan.passes},
+            CleanMode.VACUUM_AND_MOP: {"sweepMopSyncTime": plan.passes},
+            CleanMode.VACUUM_THEN_MOP: {"sweepTime": plan.passes, "mopTime": plan.mop_passes or plan.passes},
+        }[plan.mode]
+        return {
+            "mode": CLEAN_MODE_LABEL[plan.mode],
+            "fanLevel": fan.value if vacuum else None,
+            "mopHumidity": mop.value if mopping else None,
+            **times,
+            "overlapLevel": "OVERLAP_LEVEL_DENSE" if plan.intensive else "OVERLAP_LEVEL_NORMAL",
+            "enableHeavyDirtyClean": True if plan.stain_remover and mopping else None,
+        }
 
     def _build_start_clean(
         self,
-        zones: list[dict[str, Any]],
-        mode: CleanMode,
-        fan_level: FanLevel | None,
-        mop_humidity: MopHumidity | None,
-        passes: int,
+        zones: list[tuple[dict[str, Any], CleanPlan]],
+        plan: CleanPlan,
         task_type: str = "TASK_TYPE_CUSTOM_CLEAN",
-        option: dict[str, Any] | None = None,
         param_extra: dict[str, Any] | None = None,
     ) -> bytes:
-        fan = fan_level or self.state.fan_level or FanLevel.NORMAL
-        mop = mop_humidity or self.state.mop_humidity or MopHumidity.NORMAL
-        vacuum = mode in (CleanMode.VACUUM_ONLY, CleanMode.VACUUM_AND_MOP, CleanMode.VACUUM_THEN_MOP)
-        mopping = mode in (CleanMode.MOP_ONLY, CleanMode.VACUUM_AND_MOP, CleanMode.VACUUM_THEN_MOP)
-        # Passes go in the field matching the mode (CleanTask.CleanParam).
-        times: dict[str, int] = {
-            CleanMode.VACUUM_ONLY: {"sweepTime": passes},
-            CleanMode.MOP_ONLY: {"mopTime": passes},
-            CleanMode.VACUUM_AND_MOP: {"sweepMopSyncTime": passes},
-            CleanMode.VACUUM_THEN_MOP: {"sweepTime": passes, "mopTime": passes},
-        }[mode]
-        items = []
-        for order, zone in enumerate(zones, start=1):
-            items.append({
-                "zone": zone,
-                "param": {
-                    "mode": CLEAN_MODE_LABEL[mode],
-                    "fanLevel": fan.value if vacuum else None,
-                    "mopHumidity": mop.value if mopping else None,
-                    **times,
-                    **(param_extra or {}),
-                },
-                "order": order,
-            })
+        items = [
+            {"zone": zone, "param": {**self._clean_param(zone_plan), **(param_extra or {})}, "order": order}
+            for order, (zone, zone_plan) in enumerate(zones, start=1)
+        ]
         task: dict[str, Any] = {"items": items, "taskType": task_type}
-        if option:
-            task["option"] = option
+        if plan.mode == CleanMode.FREO_MIND or param_extra:
+            task["option"] = {"enableSmartMode": True}
         if self.state.map and self.state.map.map_id:
             task["mapId"] = self.state.map.map_id
         return encode("StartClean_Request", {"task": task})
@@ -689,32 +716,24 @@ class NarwalClient:
     async def start_clean(
         self,
         room_ids: list[int] | None = None,
-        mode: CleanMode = CleanMode.VACUUM_AND_MOP,
-        fan_level: FanLevel | None = None,
-        mop_humidity: MopHumidity | None = None,
-        passes: int = 1,
+        plan: CleanPlan = CleanPlan(),
+        room_plans: dict[int, CleanPlan] | None = None,
     ) -> CommandResponse:
-        """Start cleaning the given rooms (all known rooms if none given)."""
+        """Start cleaning the given rooms in that order (all rooms, in the robot's order, if none given)."""
         await self.notify_active()
         if not room_ids:
             if not self.state.rooms or self.state.map is None:
                 await self.fetch_rooms()
-            room_ids = [
-                r.room_id for r in self.state.rooms
-                if r.room_id not in self.state.no_go_room_ids
-            ]
+            room_ids = [r for r in self.room_clean_order() if r not in self.state.no_go_room_ids]
         if not room_ids:
             raise NarwalCommandError("Cannot start: no rooms known yet (map not loaded)")
-        request = self.build_clean_request(room_ids, mode, fan_level, mop_humidity, passes)
+        request = self.build_clean_request(room_ids, plan, room_plans)
         return await self.send_command(TOPIC_CMD_START_CLEAN, request)
 
     async def start_zone_clean(
         self,
         zones: list[tuple[int, int, int, int]],
-        mode: CleanMode = CleanMode.VACUUM_AND_MOP,
-        fan_level: FanLevel | None = None,
-        mop_humidity: MopHumidity | None = None,
-        passes: int = 1,
+        plan: CleanPlan = CleanPlan(),
     ) -> CommandResponse:
         """Clean rectangles (x1, y1, x2, y2) given in the map's grid units."""
         if not zones:
@@ -730,7 +749,7 @@ class NarwalClient:
                     f"Zone {(x1, y1, x2, y2)} is too small: the robot ignores zones under "
                     f"{min_side} grid cells (about {MIN_ZONE_SIDE_MM / 1000:.1f} m) per side"
                 )
-        request = self.build_zone_clean_request(zones, mode, fan_level, mop_humidity, passes)
+        request = self.build_zone_clean_request(zones, plan)
         return await self.send_command(TOPIC_CMD_START_CLEAN, request)
 
     # ------------------------------------------------------------------

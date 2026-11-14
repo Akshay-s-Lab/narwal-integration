@@ -8,10 +8,10 @@ ROOTS=["GetDeviceBaseStatus_Response","RobotBaseStatus","WorkingStatus","GetConf
  "GetEditableMap_Request","GetEditableMap_Response","MapOperation_Request","MapOperation_Response",
  "BuildMap_Request","BuildMap_Response","SaveMapUpdate_Request","SaveMapUpdate_Response",
  "CheckMapUpdate_Request","CheckMapUpdate_Response","SetManualControlMode_Request","SetManualControlMode_Response",
- "TelecontrolVelocity"]
+ "TelecontrolVelocity","GetCurrentCleanTask_Response"]
 STOP={"VisionData","RobotTrajectory","RobotTrajectoryInfo","RobotTrajectoryWithInfo","RobotTrajectoryArc","IncrementalMapData",
  "EntireMapData","VideoCruisePointData","PetHeatArea","ThresholdData","Window","RoomContour","ReducedMap","Carpet","UpdateMapRegion",
- "MapCenterAlign","ZoneInfo","Door","SmartCleanParam","MapConfiguration","WakeUpWord","AIInfo","DebugOption",
+ "MapCenterAlign","ZoneInfo","Door","WakeUpWord","AIInfo","DebugOption",
  "MaintainFloorItem","RobotTaskStatusV2","RobotTaskStatusExternalV2","ValleyCharging","VideoCruiseStatus","SearchPetStatus","WaitingUserStatus"}
 msgs={}; enums=set(); todo=list(ROOTS)
 while todo:

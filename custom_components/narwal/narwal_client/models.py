@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from .const import ROOM_SUB_TYPE_NAMES, SUCCESS_RESULTS, FanLevel, MopHumidity
+from .const import ROOM_SUB_TYPE_NAMES, SUCCESS_RESULTS, CleanMode, FanLevel, MopHumidity
 from .proto import ProtoError, decode
 
 _LOGGER = logging.getLogger(__name__)
@@ -202,6 +202,19 @@ class NoGoZone:
     zone_id: int
     polygon: list[tuple[float, float]]
     kind: str = "all"
+
+
+@dataclass(frozen=True)
+class CleanPlan:
+    """The start panel's settings for a clean, or for one room of it."""
+
+    mode: CleanMode = CleanMode.VACUUM_AND_MOP
+    fan_level: FanLevel | None = None
+    mop_humidity: MopHumidity | None = None
+    passes: int = 1
+    mop_passes: int | None = None
+    intensive: bool = False
+    stain_remover: bool = False
 
 
 @dataclass

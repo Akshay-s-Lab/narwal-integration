@@ -1,6 +1,7 @@
-const CARD_VERSION = "2.1.0";
+const CARD_VERSION = "2.2.0";
 
 const MODES = [
+  { label: "Freo Mind", value: "Freo Mind" },
   { label: "Vacuum & Mop", value: "Vacuum & Mop" },
   { label: "Vacuum then Mop", value: "Vacuum then Mop" },
   { label: "Vacuum", value: "Vacuum Only" },
@@ -8,6 +9,7 @@ const MODES = [
 ];
 
 const WETNESS_LABELS = { dry: "Dry", normal: "Normal", wet: "Wet" };
+const COVERAGE_LABELS = { standard: "Standard", intensive: "Intensive" };
 
 // Dock actions shown when the matching button entity exists.
 const DOCK_ACTIONS = [
@@ -184,6 +186,7 @@ class NarwalVacuumCard extends HTMLElement {
   _battery() { return this._sibling("sensor", "battery", "battery_entity", (e) => e.includes("battery")); }
   _modeSelect() { return this._sibling("select", "clean_mode", "mode_entity", (e) => e.includes("clean_mode")); }
   _wetnessSelect() { return this._sibling("select", "mop_humidity"); }
+  _coverageSelect() { return this._sibling("select", "coverage"); }
 
   _state(entityId) {
     return entityId ? this._hass.states[entityId] : undefined;
@@ -280,6 +283,11 @@ class NarwalVacuumCard extends HTMLElement {
           <div class="group" id="wetness-group">
             <div class="section-label">Mop wetness</div>
             <div class="chips fill" id="wetness"></div>
+          </div>
+
+          <div class="group" id="coverage-group">
+            <div class="section-label">Coverage precision</div>
+            <div class="chips fill" id="coverage"></div>
           </div>
 
           <div class="actions" id="actions"></div>
@@ -558,7 +566,8 @@ class NarwalVacuumCard extends HTMLElement {
     this._syncModeFromEntity();
     this._updateModes();
     this._updateSuction(attrs);
-    this._updateWetness();
+    this._updateSelectChips("wetness", this._wetnessSelect(), WETNESS_LABELS);
+    this._updateSelectChips("coverage", this._coverageSelect(), COVERAGE_LABELS);
     this._updateMap();
     this._updateStartButton(entity.state);
     this._updateDock();
@@ -618,11 +627,12 @@ class NarwalVacuumCard extends HTMLElement {
     for (const btn of this.shadowRoot.getElementById("modes").children) {
       btn.classList.toggle("active", btn.dataset.mode === this._selectedMode);
     }
-    // Suction only matters when vacuuming, wetness only when mopping.
-    this.shadowRoot.getElementById("suction-group").classList.toggle("hidden", this._selectedMode === "Mop Only");
-    this.shadowRoot.getElementById("wetness-group").classList.toggle(
-      "hidden", this._selectedMode === "Vacuum Only" || !this._wetnessSelect()
-    );
+    // Freo Mind picks its own settings; suction only matters when vacuuming, wetness only when mopping.
+    const freo = this._selectedMode === "Freo Mind";
+    const hide = (id, hidden) => this.shadowRoot.getElementById(id).classList.toggle("hidden", hidden);
+    hide("suction-group", freo || this._selectedMode === "Mop Only");
+    hide("wetness-group", freo || this._selectedMode === "Vacuum Only" || !this._wetnessSelect());
+    hide("coverage-group", freo || !this._coverageSelect());
   }
 
   _updateSuction(attrs) {
@@ -642,17 +652,16 @@ class NarwalVacuumCard extends HTMLElement {
     for (const btn of container.children) btn.classList.toggle("active", btn.dataset.value === attrs.fan_speed);
   }
 
-  _updateWetness() {
-    const select = this._wetnessSelect();
+  _updateSelectChips(containerId, select, labels) {
     const state = this._state(select);
-    const container = this.shadowRoot.getElementById("wetness");
+    const container = this.shadowRoot.getElementById(containerId);
     if (!state) { container.innerHTML = ""; return; }
     const options = state.attributes.options || [];
     if (container.dataset.sig !== options.join("|")) {
       container.dataset.sig = options.join("|");
       container.innerHTML = "";
       for (const option of options) {
-        const btn = this._chip(WETNESS_LABELS[option] || option, () => this._hass.callService(
+        const btn = this._chip(labels[option] || option, () => this._hass.callService(
           "select", "select_option", { entity_id: select, option }
         ));
         btn.dataset.value = option;

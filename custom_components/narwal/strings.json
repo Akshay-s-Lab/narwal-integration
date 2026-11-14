@@ -234,6 +234,75 @@
           "ignore": "Ignore",
           "avoid": "Avoid"
         }
+      },
+      "new_carpet_strategy": {
+        "name": "New carpet handling",
+        "state": {
+          "cross": "Cross",
+          "boost": "Boost suction",
+          "ignore": "Ignore",
+          "avoid": "Avoid"
+        }
+      },
+      "obstacle_avoidance": {
+        "name": "Obstacle avoidance",
+        "state": {
+          "smart": "Smart",
+          "safer": "Safer",
+          "off": "Off"
+        }
+      },
+      "freo_strategy": {
+        "name": "Freo Mind strategy",
+        "state": {
+          "quick": "Quick",
+          "standard": "Standard",
+          "deep": "Deep"
+        }
+      },
+      "freo_suction": {
+        "name": "Freo Mind suction",
+        "state": {
+          "smart": "Smart",
+          "quiet": "Quiet",
+          "normal": "Normal",
+          "turbo": "Turbo",
+          "max": "Max",
+          "ultra": "Ultra"
+        }
+      },
+      "freo_mop_wetness": {
+        "name": "Freo Mind mop wetness",
+        "state": {
+          "smart": "Smart",
+          "dry": "Dry",
+          "normal": "Normal",
+          "wet": "Wet"
+        }
+      },
+      "freo_coverage": {
+        "name": "Freo Mind coverage",
+        "state": {
+          "smart": "Smart",
+          "standard": "Standard",
+          "intensive": "Intensive"
+        }
+      },
+      "coverage": {
+        "name": "Coverage precision",
+        "state": {
+          "standard": "Standard",
+          "intensive": "Intensive"
+        }
+      },
+      "corner_cleaning": {
+        "name": "Corner cleaning",
+        "state": {
+          "off": "Off",
+          "every_time": "Every time",
+          "every_day": "Every day",
+          "every_7_days": "Every 7 days"
+        }
       }
     },
     "switch": {
@@ -263,6 +332,27 @@
       },
       "do_not_disturb": {
         "name": "Do not disturb"
+      },
+      "crossing_boost": {
+        "name": "Threshold crossing boost"
+      },
+      "dirt_detection": {
+        "name": "Dirt detection"
+      },
+      "heavy_dirt_deep_clean": {
+        "name": "Deep clean heavy dirt"
+      },
+      "pad_moisture_protection": {
+        "name": "Mop pad moisture protection"
+      },
+      "dust_bag_drying": {
+        "name": "Dust bag drying"
+      },
+      "auto_power_off": {
+        "name": "Auto power-off"
+      },
+      "stain_remover": {
+        "name": "Use stain remover"
       }
     },
     "number": {
@@ -271,6 +361,9 @@
       },
       "clean_passes": {
         "name": "Clean passes"
+      },
+      "mop_passes": {
+        "name": "Mop passes"
       }
     }
   }

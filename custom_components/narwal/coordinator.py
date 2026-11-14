@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
@@ -52,6 +53,7 @@ from .narwal_client.models import (
     ACTIVITY_IDLE,
     ACTIVITY_PAUSED,
     ACTIVITY_RETURNING,
+    CleanPlan,
     RoomInfo,
 )
 
@@ -79,6 +81,9 @@ class NarwalCoordinator(DataUpdateCoordinator[NarwalState]):
         self._cloud: NarwalCloud | None = None
         self.selected_clean_mode: CleanMode = CleanMode.VACUUM_AND_MOP
         self.clean_passes: int = 1
+        self.mop_passes: int = 1
+        self.intensive_coverage = False
+        self.use_stain_remover = False
         self._consecutive_failures = 0
         self._keepalive_unsub = None
         self._last_slow_refresh = 0.0
@@ -92,6 +97,17 @@ class NarwalCoordinator(DataUpdateCoordinator[NarwalState]):
             self._setup_from_cloud_config(entry)
         else:
             self._setup_from_legacy_config(entry)
+
+    def clean_plan(self, **overrides: Any) -> CleanPlan:
+        """The next clean as chosen in HA, with per-call overrides (None keeps the choice)."""
+        plan = CleanPlan(
+            mode=self.selected_clean_mode,
+            passes=self.clean_passes,
+            mop_passes=self.mop_passes,
+            intensive=self.intensive_coverage,
+            stain_remover=self.use_stain_remover,
+        )
+        return replace(plan, **{k: v for k, v in overrides.items() if v is not None})
 
     # ------------------------------------------------------------------
     # Setup

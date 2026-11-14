@@ -188,6 +188,10 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         2: ('exceptionPoint', 'message', 'Point__map_rebuild_data', False),
         3: ('exceptionTime', 'uint32', None, False),
     },
+    'FanLevelStrategy': {
+        1: ('isCustomizeMode', 'bool', None, False),
+        2: ('fanLevel', 'enum', 'FanLevel', False),
+    },
     'FirmwareGroupMSG': {
         1: ('mcu', 'message', 'FirmwareVersionEntityMSG', False),
         2: ('ble', 'message', 'FirmwareVersionEntityMSG', False),
@@ -278,7 +282,7 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         26: ('moistureProofPadProtectEnabled', 'bool', None, False),
         27: ('dustGatheringEnabled', 'bool', None, False),
         28: ('smartDustGatheringEnabled', 'bool', None, False),
-        29: ('smartCleanParam', 'bytes', None, False),
+        29: ('smartCleanParam', 'message', 'SmartCleanParam', False),
         30: ('quietDustGatheringEnabled', 'bool', None, False),
         31: ('dryRobotBagEnabled', 'bool', None, False),
         32: ('hotWaterWashEnabled', 'bool', None, False),
@@ -293,7 +297,7 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         41: ('cornerCleanMode', 'enum', 'CornerCleanMode', False),
         42: ('petIconType', 'enum', 'PetIconType', False),
         43: ('enableDustSensorDirtyDetect', 'bool', None, False),
-        44: ('mapConfiguration', 'bytes', None, False),
+        44: ('mapConfiguration', 'message', 'MapConfiguration', False),
         45: ('buildDateTime', 'string', None, False),
         46: ('carpetCleanPriorityOption', 'enum', 'CarpetCleanPriorityOption', False),
         47: ('carpetDeepCleanOption', 'enum', 'CarpetDeepCleanOption', False),
@@ -310,6 +314,11 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
     'GetConsumableInfo_Response': {
         1: ('consumableInfo', 'message', 'ConsumableInfoPayload', False),
         2: ('unifiedErrorCode', 'uint32', None, False),
+    },
+    'GetCurrentCleanTask_Response': {
+        1: ('result', 'enum', 'ServiceResult', False),
+        2: ('cleanTask', 'message', 'CleanTask', False),
+        3: ('unifiedErrorCode', 'uint32', None, False),
     },
     'GetDeviceBaseStatus_Response': {
         1: ('result', 'enum', 'GetDeviceBaseStatus_Response_ResultType', False),
@@ -480,6 +489,22 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         1: ('x', 'int32', None, False),
         2: ('y', 'int32', None, False),
     },
+    'HeavyDirtyCleanConfig': {
+        1: ('enableHeavyDirtyClean', 'bool', None, False),
+        2: ('heavyDirtyCleanFrequencyType', 'enum', 'HeavyDirtyCleanConfig_HeavyDirtyCleanFrequencyType', False),
+        3: ('heavyDirtyCleanFrequencyMinutes', 'uint32', None, False),
+    },
+    'HeavyDirtyRoomConfig': {
+        1: ('isCustomizeMode', 'bool', None, False),
+        2: ('mapId', 'uint32', None, False),
+    },
+    'MapConfigUnit': {
+        1: ('mapId', 'uint32', None, False),
+        2: ('boostCrossingModeEnabled', 'bool', None, False),
+    },
+    'MapConfiguration': {
+        1: ('configs', 'message', 'MapConfigUnit', True),
+    },
     'MapData': {
         1: ('grids', 'uint32', None, True),
         2: ('debugGrids', 'uint32', None, True),
@@ -519,6 +544,14 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
     'MapRotateOperation': {
         1: ('rotateAngle', 'int32', None, False),
     },
+    'MaxReMopCountStrategy': {
+        1: ('isCustomizeMode', 'bool', None, False),
+        2: ('maxRemopCount', 'uint32', None, False),
+    },
+    'MopHumidityStrategy': {
+        1: ('isCustomizeMode', 'bool', None, False),
+        2: ('mopHumidity', 'enum', 'MopHumidity', False),
+    },
     'NoCarpetArea': {
         1: ('id', 'uint32', None, False),
         2: ('polygon', 'message', 'Grid', True),
@@ -536,6 +569,10 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         6: ('detailErrorCode', 'int32', None, False),
         7: ('currentVersion', 'string', None, False),
         8: ('targetVersion', 'string', None, False),
+    },
+    'OverlapLevelStrategy': {
+        1: ('isCustomizeMode', 'bool', None, False),
+        2: ('overlapLevel', 'enum', 'OverlapLevel', False),
     },
     'PauseTask_Request': {
         1: ('tasks', 'enum', 'ParallelTaskType', True),
@@ -725,7 +762,7 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         26: ('moistureProofPadProtectEnabled', 'bool', None, False),
         27: ('dustGatheringEnabled', 'bool', None, False),
         28: ('smartDustGatheringEnabled', 'bool', None, False),
-        29: ('smartCleanParam', 'bytes', None, False),
+        29: ('smartCleanParam', 'message', 'SmartCleanParam', False),
         30: ('quietDustGatheringEnabled', 'bool', None, False),
         31: ('dryRobotBagEnabled', 'bool', None, False),
         32: ('hotWaterWashEnabled', 'bool', None, False),
@@ -740,7 +777,7 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
         41: ('cornerCleanMode', 'enum', 'CornerCleanMode', False),
         42: ('petIconType', 'enum', 'PetIconType', False),
         43: ('enableDustSensorDirtyDetect', 'bool', None, False),
-        44: ('mapConfiguration', 'bytes', None, False),
+        44: ('mapConfiguration', 'message', 'MapConfiguration', False),
         45: ('carpetCleanPriorityOption', 'enum', 'CarpetCleanPriorityOption', False),
         46: ('carpetDeepCleanOption', 'enum', 'CarpetDeepCleanOption', False),
         47: ('allThingsRecognitionEnabled', 'bool', None, False),
@@ -796,6 +833,15 @@ MESSAGES: dict[str, dict[int, tuple[str, str, str | None, bool]]] = {
     'SlopeOperation': {
         1: ('operation', 'enum', 'SlopeOperation_Operation', False),
         2: ('slopeData', 'message', 'SlopeData', False),
+    },
+    'SmartCleanParam': {
+        1: ('maxRemopCountStrategy', 'message', 'MaxReMopCountStrategy', False),
+        2: ('overlapLevelStrategy', 'message', 'OverlapLevelStrategy', False),
+        3: ('cleanCornerSetting', 'message', 'CleanCornerSetting', False),
+        4: ('fanLevelStrategy', 'message', 'FanLevelStrategy', False),
+        5: ('mopHumidityStrategy', 'message', 'MopHumidityStrategy', False),
+        6: ('heavyDirtyRoomConfig', 'message', 'HeavyDirtyRoomConfig', True),
+        7: ('heavyDirtyCleanConfig', 'message', 'HeavyDirtyCleanConfig', False),
     },
     'StartClean_Request': {
         1: ('task', 'message', 'CleanTask', False),
@@ -965,6 +1011,7 @@ ENUMS: dict[str, dict[int, str]] = {
     'GetFeatureList_Response_StreamingActiveShortcut': {0: 'STREAMING_ACTIVE_SHORTCUT_DEFAULT', 1: 'STREAMING_ACTIVE_SHORTCUT_ROBOT_RECALL_TRIPLE'},
     'GetFeatureList_Response_VisionObsFeature': {0: 'VISION_OBS_FEATURE_UNSPECIFIED', 1: 'VISION_OBS_FEATURE_PIC', 2: 'VISION_OBS_FEATURE_ICON'},
     'GetMap_Request_RequestType': {0: 'REQUEST_TYPE_UNSPECIFIED', 1: 'REQUEST_TYPE_QUERY_MAP_EXIST', 2: 'REQUEST_TYPE_PERCEPTION_DEBUG_ROOM_MAP', 3: 'REQUEST_TYPE_PERCEPTION_DEBUG_LIDAR_SEGMENT_MAP', 4: 'REQUEST_TYPE_GET_MAP_WITHOUT_ROBOT_TRAJECTORY'},
+    'HeavyDirtyCleanConfig_HeavyDirtyCleanFrequencyType': {0: 'HEAVY_DIRTY_CLEAN_FREQUENCY_TYPE_UNSPECIFIED', 1: 'HEAVY_DIRTY_CLEAN_FREQUENCY_TYPE_EVERY_TIME', 2: 'HEAVY_DIRTY_CLEAN_FREQUENCY_TYPE_BY_MINUTES'},
     'Language': {0: 'LANGUAGE_UNSPECIFIED', 1: 'LANGUAGE_CHINESE_SIMPLE', 2: 'LANGUAGE_CHINESE_TRADITIONAL', 3: 'LANGUAGE_ENGLISH', 4: 'LANGUAGE_KOREAN', 5: 'LANGUAGE_JAPANESE', 6: 'LANGUAGE_GERMANY', 7: 'LANGUAGE_HEBREW', 8: 'LANGUAGE_ITALIAN', 9: 'LANGUAGE_FRENCH', 10: 'LANGUAGE_SPANISH', 11: 'LANGUAGE_RUSSIAN', 12: 'LANGUAGE_POLISH', 13: 'LANGUAGE_TURKISH', 14: 'LANGUAGE_THAI', 15: 'LANGUAGE_VIETNAMESE'},
     'MapBuildType': {0: 'MAP_BUILD_TYPE_UNSPECIFIED', 1: 'MAP_BUILD_TYPE_MAIN_MAP', 2: 'MAP_BUILD_TYPE_TEMP_MAP', 3: 'MAP_BUILD_TYPE_MULTI_MAP'},
     'MapRequestFormat': {0: 'MAP_REQUEST_FORMAT_COMPRESSED_GRID', 1: 'MAP_REQUEST_FORMAT_CONTOUR'},

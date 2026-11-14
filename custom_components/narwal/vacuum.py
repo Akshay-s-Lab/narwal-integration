@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from homeassistant.components.vacuum import (
@@ -16,10 +17,17 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import NarwalConfigEntry
-from .const import CLEAN_MODE_MAP, FAN_SPEED_LIST, FAN_SPEED_MAP, FAN_SPEED_REVERSE, MOP_HUMIDITY_MAP
+from .const import (
+    CLEAN_MODE_MAP,
+    COVERAGE_OPTIONS,
+    FAN_SPEED_ALIASES,
+    FAN_SPEED_LIST,
+    FAN_SPEED_REVERSE,
+    MOP_HUMIDITY_MAP,
+)
 from .coordinator import NarwalCoordinator
 from .entity import NarwalEntity
-from .narwal_client import CleanMode, FanLevel, MopHumidity, NarwalClient
+from .narwal_client import CleanMode, NarwalClient
 from .narwal_client.models import (
     ACTIVITY_CLEANING,
     ACTIVITY_DOCKED,
@@ -27,6 +35,7 @@ from .narwal_client.models import (
     ACTIVITY_IDLE,
     ACTIVITY_PAUSED,
     ACTIVITY_RETURNING,
+    CleanPlan,
 )
 
 try:  # Home Assistant 2026.3+: native "clean area" (rooms mapped to HA areas)
@@ -126,10 +135,7 @@ class NarwalVacuum(NarwalEntity, StateVacuumEntity):
         if self.state_data.is_paused:
             await self._run(client.resume())
         else:
-            await self._run(client.start_clean(
-                mode=self.coordinator.selected_clean_mode,
-                passes=self.coordinator.clean_passes,
-            ))
+            await self._run(client.start_clean(plan=self.coordinator.clean_plan()))
         await self.coordinator.async_request_refresh()
 
     async def async_stop(self, **kwargs: Any) -> None:
@@ -148,7 +154,7 @@ class NarwalVacuum(NarwalEntity, StateVacuumEntity):
         await self._run(self.coordinator.client.locate())
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
-        level = FAN_SPEED_MAP.get(fan_speed)
+        level = FAN_SPEED_ALIASES.get(fan_speed)
         if level is None:
             raise ServiceValidationError(f"Unknown fan speed {fan_speed!r}; use one of {FAN_SPEED_LIST}")
         await self._run(self.coordinator.client.set_fan_speed(level))
@@ -168,27 +174,16 @@ class NarwalVacuum(NarwalEntity, StateVacuumEntity):
 
     async def async_clean_segments(self, segment_ids: list[str], **kwargs: Any) -> None:
         room_ids = [int(s) for s in segment_ids]
-        await self._clean_rooms(room_ids)
+        await self._clean_rooms(room_ids, self.coordinator.clean_plan())
 
     async def _clean_rooms(
-        self,
-        room_ids: list[int],
-        mode: CleanMode | None = None,
-        fan: FanLevel | None = None,
-        mop: MopHumidity | None = None,
-        passes: int | None = None,
+        self, room_ids: list[int], plan: CleanPlan, room_plans: dict[int, CleanPlan] | None = None,
     ) -> None:
         known = {r.room_id for r in self.state_data.rooms}
         unknown = [r for r in room_ids if known and r not in known]
         if unknown:
             raise ServiceValidationError(f"Unknown room id(s) {unknown}; known rooms: {sorted(known)}")
-        await self._run(self.coordinator.client.start_clean(
-            room_ids=room_ids,
-            mode=mode or self.coordinator.selected_clean_mode,
-            fan_level=fan,
-            mop_humidity=mop,
-            passes=passes or self.coordinator.clean_passes,
-        ))
+        await self._run(self.coordinator.client.start_clean(room_ids=room_ids, plan=plan, room_plans=room_plans))
         await self.coordinator.async_request_refresh()
 
     @callback
@@ -217,12 +212,15 @@ class NarwalVacuum(NarwalEntity, StateVacuumEntity):
     ) -> None:
         """Extra commands.
 
-        clean_rooms  params: rooms: [ids], mode: "Vacuum & Mop", fan_speed:
-                     "Strong", mop_humidity: "wet", passes: 2 (all optional
-                     except rooms)
+        clean_rooms  params: rooms, cleaned in the order given: [ids], or
+                     [{room: id, <settings>}] to set each room apart (the
+                     app's Customize Rooms). Settings, all optional: mode,
+                     fan_speed, mop_humidity, passes, mop_passes (Vacuum then
+                     Mop), coverage: standard | intensive, stain_remover
         clean_zones  params: zones: [[x1, y1, x2, y2], ...] in map grid units
                      (see the robot_position attribute), plus the same
                      optional settings as clean_rooms
+        set_room_order     params: rooms: [ids], the order a full clean follows
         add_no_go_zone     params: zone: [x1, y1, x2, y2] or points: [[x, y], ...],
                            kind: all | vacuum | mop
         add_barrier        params: start: [x, y], end: [x, y]
@@ -249,18 +247,31 @@ class NarwalVacuum(NarwalEntity, StateVacuumEntity):
             rooms = p.get("rooms") or []
             if not rooms:
                 raise ServiceValidationError("clean_rooms needs params.rooms (a list of room ids)")
-            await self._clean_rooms([int(r) for r in rooms], **_clean_settings(p))
+            plan = self.coordinator.clean_plan(**_clean_settings(p))
+            room_ids: list[int] = []
+            room_plans: dict[int, CleanPlan] = {}
+            for entry in rooms:
+                if isinstance(entry, dict):
+                    room_id = _room(entry)
+                    room_plans[room_id] = replace(plan, **_clean_settings(entry))
+                else:
+                    room_id = int(entry)
+                room_ids.append(room_id)
+            if any(rp.mode == CleanMode.FREO_MIND for rp in room_plans.values()):
+                raise ServiceValidationError("Freo Mind applies to the whole clean; set it as the top-level mode")
+            await self._clean_rooms(room_ids, plan, room_plans)
         elif command == "clean_zones":
             zones = _parse_zones(p.get("zones"))
-            settings = _clean_settings(p)
             await self._run(self.coordinator.client.start_zone_clean(
-                zones,
-                mode=settings["mode"] or self.coordinator.selected_clean_mode,
-                fan_level=settings["fan"],
-                mop_humidity=settings["mop"],
-                passes=settings["passes"] or self.coordinator.clean_passes,
+                zones, self.coordinator.clean_plan(**_clean_settings(p)),
             ))
             await self.coordinator.async_request_refresh()
+        elif command == "set_room_order":
+            order = [int(r) for r in p.get("rooms") or []]
+            known = {r.room_id for r in self.state_data.rooms}
+            if not order or set(order) - known:
+                raise ServiceValidationError(f"set_room_order needs params.rooms from {sorted(known)}")
+            await self._run(self.coordinator.client.set_room_order(order))
         elif command in _SIMPLE_COMMANDS:
             await self._run(getattr(self.coordinator.client, _SIMPLE_COMMANDS[command])())
         else:
@@ -270,21 +281,39 @@ class NarwalVacuum(NarwalEntity, StateVacuumEntity):
 
 
 def _clean_settings(p: dict[str, Any]) -> dict[str, Any]:
+    """CleanPlan fields named in send_command params; absent ones stay None."""
     mode_name = p.get("mode")
     if mode_name is not None and mode_name not in CLEAN_MODE_MAP:
         raise ServiceValidationError(f"Unknown mode {mode_name!r}; use one of {list(CLEAN_MODE_MAP)}")
     fan_name = p.get("fan_speed")
-    if fan_name is not None and fan_name not in FAN_SPEED_MAP:
+    if fan_name is not None and fan_name not in FAN_SPEED_ALIASES:
         raise ServiceValidationError(f"Unknown fan_speed {fan_name!r}; use one of {FAN_SPEED_LIST}")
     mop_name = p.get("mop_humidity")
     if mop_name is not None and mop_name not in MOP_HUMIDITY_MAP:
         raise ServiceValidationError(f"Unknown mop_humidity {mop_name!r}; use dry, normal or wet")
+    coverage = p.get("coverage")
+    if coverage is not None and coverage not in COVERAGE_OPTIONS:
+        raise ServiceValidationError(f"Unknown coverage {coverage!r}; use {' or '.join(COVERAGE_OPTIONS)}")
+    passes = {key: _passes(p, key) for key in ("passes", "mop_passes")}
+    if passes["mop_passes"] is None:
+        passes["mop_passes"] = passes["passes"]
     return {
         "mode": CLEAN_MODE_MAP.get(mode_name) if mode_name else None,
-        "fan": FAN_SPEED_MAP.get(fan_name) if fan_name else None,
-        "mop": MOP_HUMIDITY_MAP.get(mop_name) if mop_name else None,
-        "passes": int(p["passes"]) if p.get("passes") else None,
+        "fan_level": FAN_SPEED_ALIASES.get(fan_name) if fan_name else None,
+        "mop_humidity": MOP_HUMIDITY_MAP.get(mop_name) if mop_name else None,
+        **passes,
+        "intensive": coverage == "intensive" if coverage else None,
+        "stain_remover": bool(p["stain_remover"]) if "stain_remover" in p else None,
     }
+
+
+def _passes(p: dict[str, Any], key: str) -> int | None:
+    if p.get(key) is None:
+        return None
+    value = int(p[key])
+    if not 1 <= value <= 3:
+        raise ServiceValidationError(f"{key} must be 1, 2 or 3")
+    return value
 
 
 def _point(raw: Any, name: str) -> tuple[float, float]:
