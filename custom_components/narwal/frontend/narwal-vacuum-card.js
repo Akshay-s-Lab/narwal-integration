@@ -2,7 +2,7 @@ const CARD_VERSION = "2.1.0";
 
 const MODES = [
   { label: "Vacuum & Mop", value: "Vacuum & Mop" },
-  { label: "Vac → Mop", value: "Vacuum then Mop" },
+  { label: "Vacuum then Mop", value: "Vacuum then Mop" },
   { label: "Vacuum", value: "Vacuum Only" },
   { label: "Mop", value: "Mop Only" },
 ];
