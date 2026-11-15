@@ -115,6 +115,16 @@ async def test_tank_and_error_alerts(hass: HomeAssistant, client, base, pushes) 
     assert state.attributes["codes"] == ["0x01010013"]
 
 
+async def test_flapping_error_alerts_once(hass: HomeAssistant, client, base, pushes) -> None:
+    washing_without_detergent = {**DOCKED, "errorCode": [{"identityCode": 0x01010072, "level": 1}]}
+    for _ in range(3):
+        await base(washing_without_detergent)
+        await base(DOCKED)
+    errors = [c for c in pushes if c.data["data"]["tag"] == "narwal_error"]
+    assert len(errors) == 2
+    assert errors[0].data["message"] == "The detergent compartment is empty. Refill it."
+
+
 async def test_stranded_off_dock(hass: HomeAssistant, client, base, pushes) -> None:
     await base({"robotTaskStatus": {"task": "TASK_TYPE_IDLE", "idleStatus": "IDLE_STATUS_OUTSIDE_STATION"},
                         "batteryPercentage": 6.0})

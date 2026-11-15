@@ -30,6 +30,7 @@ ERROR_MESSAGES: dict[int, str] = {
     0x01010063: 'Automatic Water Exchange module error. Please contact customer service.',
     0x01010064: 'Automatic Water Exchange module error. Please contact customer service.',
     0x01010065: 'Automatic Water Exchange module error. Please contact customer service.',
+    0x01010072: 'The detergent compartment is empty. Refill it.',
     0x01010090: 'The base station malfunctions. Please contact customer service.',
     0x01010091: 'The base station malfunctions. Please contact customer service.',
     0x01010093: 'The base station malfunctions. Please contact customer service.',

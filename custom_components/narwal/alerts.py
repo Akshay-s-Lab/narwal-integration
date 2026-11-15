@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -55,6 +56,7 @@ OFFLINE_AFTER = timedelta(minutes=15)
 # The robot updates its end-of-task reason a moment after the task ends.
 TASK_END_SETTLE = timedelta(seconds=15)
 STAIN_REMOVER_LOW_PERCENT = 15
+ERROR_REPEAT_AFTER = timedelta(hours=6)
 
 _TANK_MESSAGES: dict[str, dict[str, str]] = {
     "cleanWaterTankState": {
@@ -139,6 +141,7 @@ class AlertTracker:
         self._task_end_unsub: CALLBACK_TYPE | None = None
         self._stranded_sent = False
         self._offline_sent = False
+        self._errors_alerted: dict[int, float] = {}
 
     @callback
     def add_listener(self, listener: Callable[[Alert], None]) -> CALLBACK_TYPE:
@@ -189,8 +192,14 @@ class AlertTracker:
             self._emit(ALERT_STAIN_REMOVER, f"The stain remover is down to {percent}%.", percent=percent)
 
     def _check_errors(self, before: _Snapshot, now: _Snapshot) -> None:
-        new = sorted(now.error_codes - before.error_codes)
+        clock = time.monotonic()
+        quiet_until = clock - ERROR_REPEAT_AFTER.total_seconds()
+        new = sorted(
+            code for code in now.error_codes - before.error_codes
+            if self._errors_alerted.get(code, float("-inf")) < quiet_until
+        )
         if new:
+            self._errors_alerted.update(dict.fromkeys(new, clock))
             messages = [error_message(code) for code in new]
             self._emit(
                 ALERT_ERROR,
