@@ -64,7 +64,9 @@ class NarwalSensorDescription(SensorEntityDescription):
     exists_fn: Callable[[NarwalState], bool] = lambda _: True
 
 
-def _base_enum(key: str, field_name: str, enum: str, prefix: str, icon: str) -> NarwalSensorDescription:
+def _base_enum(
+    key: str, field_name: str, enum: str, prefix: str, icon: str, *, reported_only: bool = False
+) -> NarwalSensorDescription:
     return NarwalSensorDescription(
         key=key,
         translation_key=key,
@@ -73,6 +75,7 @@ def _base_enum(key: str, field_name: str, enum: str, prefix: str, icon: str) -> 
         options=_enum_options(enum, prefix),
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda s, f=field_name, p=prefix: _slug(s.base.get(f), p),
+        exists_fn=(lambda s, f=field_name: f in s.base) if reported_only else (lambda _: True),
     )
 
 
@@ -167,6 +170,20 @@ SENSORS: tuple[NarwalSensorDescription, ...] = (
                "DUST_BOX_STATE_", "mdi:delete-variant"),
     _base_enum("detergent", "detergentState", "RobotBaseStatus_DetergentState",
                "DETERGENT_STATE_", "mdi:bottle-tonic-outline"),
+    _base_enum("dust_bag", "dustBagState", "RobotBaseStatus_DustBagState",
+               "DUST_BAG_STATE_", "mdi:sack", reported_only=True),
+    _base_enum("robot_water_tank", "robotWaterTankState", "RobotBaseStatus_RobotWaterTankState",
+               "ROBOT_WATER_TANK_STATE_", "mdi:cup-water", reported_only=True),
+    NarwalSensorDescription(
+        key="heavy_detergent",
+        translation_key="heavy_detergent",
+        icon="mdi:bottle-tonic-plus-outline",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.base.get("heavyDetergentRemainPercent"),
+        exists_fn=lambda s: "heavyDetergentRemainPercent" in s.base,
+    ),
 )
 
 
@@ -208,7 +225,10 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(NarwalSensor(coordinator, d) for d in (*SENSORS, *LIFE_SENSORS))
+    state = coordinator.client.state
+    async_add_entities(
+        NarwalSensor(coordinator, d) for d in (*SENSORS, *LIFE_SENSORS) if d.exists_fn(state)
+    )
 
 
 class NarwalSensor(NarwalEntity, SensorEntity):

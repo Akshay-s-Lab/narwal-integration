@@ -42,6 +42,11 @@ async def test_setup_and_states(hass: HomeAssistant, setup, robot) -> None:
 
     assert hass.states.get(_eid(hass, "sensor", "battery")).state == "87.0"
     assert hass.states.get(_eid(hass, "sensor", "detergent")).state == "installed_and_empty"
+    assert hass.states.get(_eid(hass, "sensor", "dust_bag")).state == "suggest_replace"
+    assert hass.states.get(_eid(hass, "sensor", "robot_water_tank")).state == "with_water"
+    assert er.async_get(hass).async_get_entity_id(
+        "sensor", "narwal", "abcdef1234567890abcdef1234567890_heavy_detergent"
+    ) is None
     assert hass.states.get(_eid(hass, "sensor", "consumables_due")).state == "1"
     assert hass.states.get(_eid(hass, "binary_sensor", "docked")).state == "on"
     assert hass.states.get(_eid(hass, "binary_sensor", "maintenance_due")).state == "on"

@@ -145,6 +145,26 @@
       },
       "roller_brush_life": {
         "name": "Roller brush life"
+      },
+      "dust_bag": {
+        "name": "Dust bag",
+        "state": {
+          "normal": "Normal",
+          "not_installed": "Not installed",
+          "suggest_replace": "Replace soon",
+          "abnormal": "Abnormal"
+        }
+      },
+      "robot_water_tank": {
+        "name": "Robot water tank",
+        "state": {
+          "with_water": "Has water",
+          "no_water": "Empty",
+          "unknown": "Unknown"
+        }
+      },
+      "heavy_detergent": {
+        "name": "Stain remover"
       }
     },
     "binary_sensor": {

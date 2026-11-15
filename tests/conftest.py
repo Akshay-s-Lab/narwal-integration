@@ -61,6 +61,8 @@ class FakeRobot:
             "sewageTankState": "SEWAGE_TANK_STATE_NORMAL",
             "dustBoxState": "DUST_BOX_STATE_NORMAL",
             "detergentState": "DETERGENT_STATE_INSTALLED_AND_EMPTY",
+            "dustBagState": "DUST_BAG_STATE_SUGGEST_REPLACE",
+            "robotWaterTankState": "ROBOT_WATER_TANK_STATE_WITH_WATER",
             "mapId": 1,
         }
         self.config: dict[str, Any] = {
