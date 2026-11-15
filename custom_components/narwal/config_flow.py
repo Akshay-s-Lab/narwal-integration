@@ -7,8 +7,11 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import callback
+from homeassistant.helpers.selector import SelectSelector, SelectSelectorConfig, SelectSelectorMode
 
+from .alerts import ALERT_TYPES, DEFAULT_PUSH_ALERTS, mobile_app_services
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_BROKER_HOST,
@@ -19,8 +22,10 @@ from .const import (
     CONF_EMAIL,
     CONF_MQTT_PASSWORD,
     CONF_MQTT_USERNAME,
+    CONF_NOTIFY_TARGETS,
     CONF_PASSWORD,
     CONF_PRODUCT_KEY,
+    CONF_PUSH_ALERTS,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
     CONF_USER_UUID,
@@ -82,6 +87,11 @@ class NarwalConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Narwal."""
 
     VERSION = 2
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> NarwalOptionsFlow:
+        return NarwalOptionsFlow()
 
     def __init__(self) -> None:
         self._cloud: NarwalCloud | None = None
@@ -235,3 +245,32 @@ class NarwalConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_REFRESH_TOKEN: session.refresh_token,
             },
         )
+
+
+class NarwalOptionsFlow(OptionsFlow):
+    """Choose which phones get pushes and which alerts are pushed."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        options = self.config_entry.options
+        phones = mobile_app_services(self.hass)
+        chosen = [p for p in options.get(CONF_NOTIFY_TARGETS, []) if p in phones]
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_NOTIFY_TARGETS, default=chosen): SelectSelector(
+                    SelectSelectorConfig(options=phones, multiple=True, mode=SelectSelectorMode.LIST)
+                ),
+                vol.Optional(
+                    CONF_PUSH_ALERTS, default=options.get(CONF_PUSH_ALERTS, DEFAULT_PUSH_ALERTS)
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=ALERT_TYPES,
+                        multiple=True,
+                        mode=SelectSelectorMode.LIST,
+                        translation_key=CONF_PUSH_ALERTS,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

@@ -15,6 +15,7 @@ PLATFORMS = [
     Platform.SELECT,
     Platform.SWITCH,
     Platform.NUMBER,
+    Platform.EVENT,
 ]
 
 # Config entry data keys
@@ -83,3 +84,26 @@ MOP_HUMIDITY_MAP: dict[str, MopHumidity] = {
     "normal": MopHumidity.NORMAL,
     "wet": MopHumidity.WET,
 }
+
+CONSUMABLE_NAMES = {
+    "CONSUMABLE_MAINTAIN_ITEM_DUST_BOX": "Clean the dust bin",
+    "CONSUMABLE_MAINTAIN_ITEM_DUST_FILTER": "Clean the dust bin filter",
+    "CONSUMABLE_MAINTAIN_ITEM_DIRTY_WATER": "Empty the dirty water tank",
+    "CONSUMABLE_MAINTAIN_ITEM_WASH_RIBS": "Clean the base station tray",
+    "CONSUMABLE_MAINTAIN_ITEM_UNIVERSAL_WHEEL": "Clean the caster wheel",
+    "CONSUMABLE_MAINTAIN_ITEM_CLIFF_SENSOR": "Clean the sensors",
+    "CONSUMABLE_MAINTAIN_ITEM_SIDE_DISTANCE_SENSOR": "Clean the sensors",
+    "CONSUMABLE_MAINTAIN_ITEM_ANTI_WINDING_BRUSH": "Clean the roller brush",
+    "CONSUMABLE_MAINTAIN_ITEM_WATER_TANK_SPONGE": "Clean the water tank filter sponge",
+    "CONSUMABLE_MAINTAIN_ITEM_SMART_MODULE_SPONGE": "Clean the filter sponge",
+    "CONSUMABLE_MAINTAIN_ITEM_DUST_CONTAINER": "Empty the dust bin / dust bag",
+    "CONSUMABLE_REPLACE_ITEM_DUST_FILTER": "Replace the dust bin filter",
+    "CONSUMABLE_REPLACE_ITEM_MOP": "Replace the mops",
+    "CONSUMABLE_REPLACE_ITEM_SIDE_BRUSH": "Replace the side brush",
+    "CONSUMABLE_REPLACE_ITEM_ROLLER_BRUSH": "Replace the roller brush",
+    "CONSUMABLE_REPLACE_ITEM_DETERGENT": "Refill the detergent",
+    "CONSUMABLE_REPLACE_ITEM_DUST_BAG": "Replace the dust bag",
+}
+
+CONF_NOTIFY_TARGETS = "notify_targets"
+CONF_PUSH_ALERTS = "push_alerts"

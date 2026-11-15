@@ -15,6 +15,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+from .alerts import AlertTracker
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_BROKER_HOST,
@@ -90,6 +91,7 @@ class NarwalCoordinator(DataUpdateCoordinator[NarwalState]):
         self._last_activity: str | None = None
         self.map_version = 0  # bumped whenever the map or robot pose changes
         self._usage_store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.consumables")
+        self.alerts = AlertTracker(hass, entry, lambda: self.client.state)
 
         if entry.data.get(CONF_CONNECTION) == CONNECTION_LOCAL:
             self._setup_from_local_config(entry)

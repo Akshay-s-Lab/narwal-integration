@@ -385,6 +385,64 @@
       "mop_passes": {
         "name": "Mop passes"
       }
+    },
+    "event": {
+      "alerts": {
+        "name": "Alerts",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "clean_water_tank": "Clean water tank empty or missing",
+              "dirty_water_tank": "Dirty water tank full or missing",
+              "dust_bin": "Robot dust bin needs emptying",
+              "detergent": "Detergent running low or empty",
+              "stain_remover_low": "Stain remover running low",
+              "error": "Robot errors (including stuck)",
+              "stranded": "Robot stranded off its dock",
+              "offline": "Robot offline",
+              "maintenance_due": "Maintenance due",
+              "clean_started": "Cleaning started",
+              "clean_finished": "Cleaning finished",
+              "clean_ended_early": "Cleaning ended early",
+              "clean_stopped": "Cleaning stopped by you"
+            }
+          }
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Push notifications",
+        "description": "Phones get push notifications through the Home Assistant Companion app. Leave phones empty to notify every phone.",
+        "data": {
+          "notify_targets": "Phones",
+          "push_alerts": "Alerts to push"
+        },
+        "data_description": {
+          "notify_targets": "Empty sends to every Companion app phone, including ones added later."
+        }
+      }
+    }
+  },
+  "selector": {
+    "push_alerts": {
+      "options": {
+        "clean_water_tank": "Clean water tank empty or missing",
+        "dirty_water_tank": "Dirty water tank full or missing",
+        "dust_bin": "Robot dust bin needs emptying",
+        "detergent": "Detergent running low or empty",
+        "stain_remover_low": "Stain remover running low",
+        "error": "Robot errors (including stuck)",
+        "stranded": "Robot stranded off its dock",
+        "offline": "Robot offline",
+        "maintenance_due": "Maintenance due",
+        "clean_started": "Cleaning started",
+        "clean_finished": "Cleaning finished",
+        "clean_ended_early": "Cleaning ended early",
+        "clean_stopped": "Cleaning stopped by you"
+      }
     }
   }
 }

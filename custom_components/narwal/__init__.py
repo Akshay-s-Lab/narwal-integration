@@ -46,6 +46,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: NarwalConfigEntry) -> bo
         raise ConfigEntryNotReady(f"Cannot connect to Narwal MQTT: {err}") from err
 
     entry.runtime_data = coordinator
+    entry.async_on_unload(coordinator.async_add_listener(coordinator.alerts.update))
+    entry.async_on_unload(coordinator.alerts.stop)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
